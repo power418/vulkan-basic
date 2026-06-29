@@ -1,0 +1,4 @@
+CompileFlags:
+  Add:
+    - "-IC:/VulkanSDK/1.4.350.0/Include"
+    - "-DUSE_VULKAN_API_1_4"
