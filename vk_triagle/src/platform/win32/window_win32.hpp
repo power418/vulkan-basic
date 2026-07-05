@@ -1,5 +1,6 @@
 #pragma once
 #include "../window.hpp"
+#include "menubar.hpp"
 #include <windows.h>
 
 class WindowWin32 : public Window {
@@ -27,6 +28,8 @@ private:
     int  m_width  = 800;
     int  m_height = 600;
     bool m_shouldClose = false;
+
+    Win32MenuBar m_menuBar;
 
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg,
                                     WPARAM wParam, LPARAM lParam);

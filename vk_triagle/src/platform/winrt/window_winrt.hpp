@@ -4,8 +4,7 @@
 #include <dwmapi.h>
 #include <winrt/Windows.UI.ViewManagement.h>
 
-#include "menubar.hpp"           // WinRT custom NC menu bar
-#include "../win32/menubar.hpp"  // Win32 classic SetMenu
+#include "menubar.hpp"           // WinRT client-area menu bar
 
 // Custom message posted by the WinRT theme-change watcher
 #define WM_THEMECHANGE (WM_APP + 1)
@@ -29,9 +28,10 @@ public:
     bool isCloseRequested() const { return m_shouldClose; }
 
 private:
-    HWND         m_hwnd     = nullptr;
-    HINSTANCE    m_hinst    = nullptr;
-    VkSurfaceKHR m_surface  = VK_NULL_HANDLE;
+    HWND         m_hwnd       = nullptr;   // main top-level window
+    HWND         m_renderHwnd = nullptr;   // child HWND for Vulkan rendering
+    HINSTANCE    m_hinst      = nullptr;
+    VkSurfaceKHR m_surface    = VK_NULL_HANDLE;
     int  m_width  = 800;
     int  m_height = 600;
     bool m_shouldClose = false;
@@ -42,13 +42,14 @@ private:
     winrt::Windows::UI::ViewManagement::UISettings m_uiSettings{nullptr};
     void* m_colorToken = nullptr;
 
-    // Menu bar — runtime switch via --mode
-    bool m_useCustomMenu = false;  // true = WinRTMenuBar, false = Win32MenuBar
+    // Menu bar — always WinRT client-area child HWND (full WinRT mode)
     WinRTMenuBar m_winrtMenuBar;
-    Win32MenuBar m_win32MenuBar;
 
     void applyTheme(bool dark);
     static bool isSystemDarkMode();
+
+    // WndProc for the render child (Vulkan surface target)
+    static LRESULT CALLBACK renderWndProc(HWND, UINT, WPARAM, LPARAM);
 
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg,
                                     WPARAM wParam, LPARAM lParam);

@@ -17,9 +17,8 @@ bool App::init() {
     wdesc.title = "vk_demo_rendering";
     wdesc.width = m_args.width;
     wdesc.height = m_args.height;
-    wdesc.customMenuBar = (m_args.mode == "win-aero-disable");
 
-    m_window = createPlatformWindow();
+    m_window = createPlatformWindow(m_args.mode);
     if (!m_window || !m_window->create(wdesc)) {
         std::printf("FATAL: window creation failed\n");
         return false;

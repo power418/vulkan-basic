@@ -7,7 +7,6 @@ struct WindowDesc {
     std::string title = "vk_demo_rendering";
     int width  = 800;
     int height = 600;
-    bool customMenuBar = true;   // true = aero-disable (custom NC), false = aero-enable (SetMenu)
 };
 
 class Window {

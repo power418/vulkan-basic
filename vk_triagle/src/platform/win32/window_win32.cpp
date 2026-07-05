@@ -1,6 +1,9 @@
 #include "window_win32.hpp"
 #include <cstdio>
 
+#include <vulkan/vulkan.h>
+#include <vulkan/vulkan_win32.h>
+
 // ---------------------------------------------------------------------------
 // Window procedure  (static)
 // ---------------------------------------------------------------------------
@@ -48,6 +51,22 @@ LRESULT CALLBACK WindowWin32::wndProc(HWND hwnd, UINT msg,
         win->m_height = HIWORD(lParam);
         return 0;
 
+    // ---- menu commands (Win32 SetMenu) ------------------------------------
+    case WM_COMMAND:
+        switch (LOWORD(wParam)) {
+        case ID_FILE_EXIT:
+            PostMessage(hwnd, WM_CLOSE, 0, 0);
+            return 0;
+        case ID_HELP_ABOUT:
+            MessageBoxW(hwnd,
+                L"vk_demo_rendering\n\n"
+                L"Vulkan Triangle Demo\n"
+                L"Built with Vulkan SDK + CMake",
+                L"About", MB_OK | MB_ICONINFORMATION);
+            return 0;
+        }
+        return 0;
+
     }
 
     return DefWindowProc(hwnd, msg, wParam, lParam);
@@ -79,8 +98,9 @@ bool WindowWin32::create(const WindowDesc& desc) {
         }
     }
 
+    // TRUE for bMenu — we will attach a Win32 menu bar
     RECT r{0, 0, m_width, m_height};
-    AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
+    AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, TRUE);
 
     m_hwnd = CreateWindowEx(
         0, CLASS, desc.title.c_str(),
@@ -95,11 +115,15 @@ bool WindowWin32::create(const WindowDesc& desc) {
         return false;
     }
 
+    // ---- attach Win32 menu bar (classic SetMenu) --------------------------
+    m_menuBar.create(m_hwnd);
+
     ShowWindow(m_hwnd, SW_SHOW);
     UpdateWindow(m_hwnd);
 
     m_shouldClose = false;
-    std::printf("Window created (%dx%d)\n", m_width, m_height);
+    std::printf("Win32 window created (%dx%d), menubar=Win32-SetMenu\n",
+                m_width, m_height);
     return true;
 }
 
@@ -107,6 +131,7 @@ bool WindowWin32::create(const WindowDesc& desc) {
 // destroy
 // ---------------------------------------------------------------------------
 void WindowWin32::destroy() {
+    m_menuBar.destroy();
     if (m_hwnd) {
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;

@@ -33,8 +33,8 @@ Args parseArgs(int argc, char* argv[]) {
     }
     if (a.mode != "win-aero-enable" && a.mode != "win-aero-disable") {
         std::printf("Invalid mode: %s\n", a.mode.c_str());
-        std::printf("  win-aero-enable   Modern DWM, custom NC menu bar\n");
-        std::printf("  win-aero-disable  Classic Win32 with menu bar\n");
+        std::printf("  win-aero-enable   Full Win32 window + Win32 menubar (DWM NC enabled)\n");
+        std::printf("  win-aero-disable  Full WinRT window + custom NC menubar (DWM NC disabled)\n");
         a.help = true;
     }
     return a;
@@ -49,8 +49,8 @@ void printHelp(const char* name) {
     std::printf("  -H, --height <px>       Window height (default: 600)\n");
     std::printf("  --vert     <path>       Vertex shader SPIR-V path\n");
     std::printf("  --frag     <path>       Fragment shader SPIR-V path\n");
-    std::printf("  -m, --mode <mode>       Menu bar mode:\n");
-    std::printf("                            win-aero-enable   Modern DWM, custom NC menu bar\n");
-    std::printf("                            win-aero-disable  Classic Win32 with menu bar\n");
+    std::printf("  -m, --mode <mode>       Window mode:\n");
+    std::printf("                            win-aero-enable   Full Win32 + Win32 menubar (DWM NC)\n");
+    std::printf("                            win-aero-disable  Full WinRT + custom NC menubar\n");
     std::printf("                          (default: win-aero-enable)\n");
 }

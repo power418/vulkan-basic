@@ -7,9 +7,11 @@
 #include <windowsx.h>
 #include <dwmapi.h>
 #include <commctrl.h>
-#include <VersionHelpers.h>
 
 #include <cstdio>
+
+#include <vulkan/vulkan.h>
+#include <vulkan/vulkan_win32.h>
 
 // Timer ID for deferred theme registry read (allow registry to settle)
 #define THEME_TIMER_ID  1001
@@ -58,18 +60,14 @@ void WindowWinRT::applyTheme(bool dark) {
     BOOL value = dark ? TRUE : FALSE;
     DwmSetWindowAttribute(m_hwnd, 20, &value, sizeof(value));
 
-    // Force DWM to immediately repaint the title bar without needing
-    // to switch focus to another window:
-    // 1) Toggle WM_NCACTIVATE to force DWM to re-render the NC area
+    // Force DWM to immediately repaint the title bar:
     SendMessage(m_hwnd, WM_NCACTIVATE, FALSE, 0);
     SendMessage(m_hwnd, WM_NCACTIVATE, TRUE,  0);
 
-    // 2) SWP_FRAMECHANGED to recalculate the NC area geometry
     SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
                  SWP_FRAMECHANGED | SWP_NOACTIVATE);
 
-    // 3) Redraw both the NC frame and the client area
     RedrawWindow(m_hwnd, nullptr, nullptr,
                  RDW_FRAME | RDW_INVALIDATE | RDW_UPDATENOW |
                  RDW_ALLCHILDREN);
@@ -115,7 +113,25 @@ WindowWinRT::~WindowWinRT() {
 }
 
 // ===========================================================================
-// Window procedure  (static)
+// Render child WndProc — Vulkan presents directly, no GDI painting needed
+// ===========================================================================
+LRESULT CALLBACK WindowWinRT::renderWndProc(HWND hwnd, UINT msg,
+                                             WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_ERASEBKGND:
+        return 1;   // Vulkan handles all rendering
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        BeginPaint(hwnd, &ps);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    }
+    return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+// ===========================================================================
+// Main window procedure  (static)
 // ===========================================================================
 LRESULT CALLBACK WindowWinRT::wndProc(HWND hwnd, UINT msg,
                                        WPARAM wParam, LPARAM lParam) {
@@ -142,6 +158,7 @@ LRESULT CALLBACK WindowWinRT::wndProc(HWND hwnd, UINT msg,
     case WM_DESTROY:
         win->m_shouldClose = true;
         win->m_hwnd = nullptr;
+        win->m_renderHwnd = nullptr;   // child is auto-destroyed with parent
         KillTimer(hwnd, THEME_TIMER_ID);
         // Unsubscribe and clean up WinRT theme watcher
         if (win->m_colorToken) {
@@ -162,33 +179,22 @@ LRESULT CALLBACK WindowWinRT::wndProc(HWND hwnd, UINT msg,
         return 0;
     }
 
-    case WM_SIZE:
-        win->m_width  = LOWORD(lParam);
-        win->m_height = HIWORD(lParam);
+    // ---- size: resize menubar + render child ------------------------------
+    case WM_SIZE: {
+        int w = LOWORD(lParam);
+        int h = HIWORD(lParam);
+        win->m_width  = w;
+        win->m_height = h;
+
+        int menuH = win->m_winrtMenuBar.getHeight();
+        win->m_winrtMenuBar.resize(w);
+        if (win->m_renderHwnd) {
+            SetWindowPos(win->m_renderHwnd, nullptr,
+                         0, menuH, w, (h > menuH) ? h - menuH : 0,
+                         SWP_NOZORDER);
+        }
         return 0;
-
-    // ---- menu bar: delegate to WinRTMenuBar or fall through to default ----
-    case WM_NCCALCSIZE:
-        if (win->m_useCustomMenu && win->m_winrtMenuBar.onNcCalcSize(wParam, lParam))
-            return 0;
-        break;
-
-    case WM_NCPAINT:
-        if (win->m_useCustomMenu)
-            return win->m_winrtMenuBar.onNcPaint(hwnd, wParam, lParam) ? 0 : -1;
-        break;
-
-    case WM_NCHITTEST: {
-        LRESULT ht;
-        if (win->m_useCustomMenu && win->m_winrtMenuBar.onNcHitTest(lParam, ht))
-            return ht;
-        break;
     }
-
-    case WM_NCLBUTTONDOWN:
-        if (win->m_useCustomMenu && win->m_winrtMenuBar.onNcLButtonDown(hwnd, wParam, lParam))
-            return 0;
-        break;
 
     // ---- OS theme change signals -----------------------------------------
     case WM_THEMECHANGE:
@@ -212,7 +218,7 @@ LRESULT CALLBACK WindowWinRT::wndProc(HWND hwnd, UINT msg,
         }
         return 0;
 
-    // ---- menu commands (both menu bar modes) ------------------------------
+    // ---- menu commands (WinRT menubar sends WM_COMMAND to parent) ---------
     case WM_COMMAND:
         switch (LOWORD(wParam)) {
         case ID_FILE_EXIT:
@@ -239,13 +245,12 @@ LRESULT CALLBACK WindowWinRT::wndProc(HWND hwnd, UINT msg,
 bool WindowWinRT::create(const WindowDesc& desc) {
     m_width  = desc.width;
     m_height = desc.height;
-    m_useCustomMenu = desc.customMenuBar;
     m_hinst  = GetModuleHandle(nullptr);
 
-    // Read theme BEFORE CreateWindowEx so the first WM_NCPAINT
-    // (which fires during window creation) uses correct colors.
+    // Read theme BEFORE CreateWindowEx so the first paint uses correct colors.
     m_isDarkMode = readDarkModeRegistry();
 
+    // ---- register main window class ---------------------------------------
     const char* CLASS = "VulkanWinRTClass";
 
     WNDCLASS wc{};
@@ -263,6 +268,23 @@ bool WindowWinRT::create(const WindowDesc& desc) {
         }
     }
 
+    // ---- register render child class --------------------------------------
+    const char* RENDER_CLASS = "VulkanRenderClass";
+
+    WNDCLASS rwc{};
+    rwc.lpfnWndProc   = renderWndProc;
+    rwc.hInstance      = m_hinst;
+    rwc.lpszClassName  = RENDER_CLASS;
+
+    if (!RegisterClass(&rwc)) {
+        if (GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+            std::printf("ERROR: RegisterClass (render) failed (err=%lu)\n",
+                        GetLastError());
+            return false;
+        }
+    }
+
+    // ---- create main window -----------------------------------------------
     RECT r{0, 0, m_width, m_height};
     AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
 
@@ -279,24 +301,34 @@ bool WindowWinRT::create(const WindowDesc& desc) {
         return false;
     }
 
-    // ---- apply OS theme preference to title bar ---------------------------
+    // ---- apply OS theme preference to DWM title bar -----------------------
     applyTheme(m_isDarkMode);
-
-    // Ensure the title is set explicitly (DWM dark mode can wipe the text)
     SetWindowTextA(m_hwnd, desc.title.c_str());
 
-    // ---- create menu bar (delegate to the appropriate class) --------------
-    if (m_useCustomMenu) {
-        // aero-disable: WinRT custom NC menu bar (Ableton-style dark)
-        m_winrtMenuBar.create(m_hwnd);
-    } else {
-        // aero-enable: classic Win32 SetMenu
-        m_win32MenuBar.create(m_hwnd);
+    // ---- create WinRT client-area menu bar (child HWND) -------------------
+    m_winrtMenuBar.create(m_hwnd);
+    m_winrtMenuBar.setDarkMode(m_isDarkMode);
+
+    // ---- create render child HWND (Vulkan surface target) -----------------
+    RECT clientRC;
+    GetClientRect(m_hwnd, &clientRC);
+    int menuH = m_winrtMenuBar.getHeight();
+
+    m_renderHwnd = CreateWindowEx(
+        0, RENDER_CLASS, "",
+        WS_CHILD | WS_VISIBLE,
+        0, menuH,
+        clientRC.right - clientRC.left,
+        (clientRC.bottom - clientRC.top) - menuH,
+        m_hwnd, nullptr, m_hinst, nullptr);
+
+    if (!m_renderHwnd) {
+        std::printf("ERROR: render child HWND creation failed (err=%lu)\n",
+                    GetLastError());
+        return false;
     }
 
     // ---- WinRT: watch for system colour/theme changes --------------------
-    // UISettings must stay alive for the lifetime of the window, otherwise
-    // the ColorValuesChanged callback is cancelled when the object is destroyed.
     try {
         m_uiSettings = winrt::Windows::UI::ViewManagement::UISettings();
         auto token = m_uiSettings.ColorValuesChanged(
@@ -313,14 +345,13 @@ bool WindowWinRT::create(const WindowDesc& desc) {
     UpdateWindow(m_hwnd);
 
     // Re-apply theme AFTER ShowWindow so the DWM title bar renders
-    // consistently on first display (no need to alt-tab / switch focus).
+    // consistently on first display.
     applyTheme(m_isDarkMode);
 
     m_shouldClose = false;
-    std::printf("WinRT window created (%dx%d), theme=%s, mode=%s\n",
+    std::printf("WinRT window created (%dx%d), theme=%s, menubar=client-area\n",
                 m_width, m_height,
-                m_isDarkMode ? "dark" : "light",
-                m_useCustomMenu ? "aero-disable-custom" : "aero-enable-win32");
+                m_isDarkMode ? "dark" : "light");
     return true;
 }
 
@@ -328,15 +359,14 @@ bool WindowWinRT::create(const WindowDesc& desc) {
 // destroy
 // ===========================================================================
 void WindowWinRT::destroy() {
+    m_winrtMenuBar.destroy();
+    // Note: child HWNDs (render + menubar) are auto-destroyed with parent.
+    // But if we explicitly destroyed menubar above, just destroy parent.
     if (m_hwnd) {
         DestroyWindow(m_hwnd);
         m_hwnd = nullptr;
     }
-    if (m_useCustomMenu) {
-        m_winrtMenuBar.destroy();
-    } else {
-        m_win32MenuBar.destroy();
-    }
+    m_renderHwnd = nullptr;
 }
 
 // ===========================================================================
@@ -352,7 +382,7 @@ bool WindowWinRT::pollEvents() {
 }
 
 // ===========================================================================
-// createSurface
+// createSurface — uses the render child HWND (not the main window)
 // ===========================================================================
 VkSurfaceKHR WindowWinRT::createSurface(VkInstance instance) {
     if (m_surface)
@@ -361,7 +391,7 @@ VkSurfaceKHR WindowWinRT::createSurface(VkInstance instance) {
     VkWin32SurfaceCreateInfoKHR ci{};
     ci.sType     = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
     ci.hinstance = m_hinst;
-    ci.hwnd      = m_hwnd;
+    ci.hwnd      = m_renderHwnd;   // Vulkan renders into the child HWND
 
     if (vkCreateWin32SurfaceKHR(instance, &ci, nullptr, &m_surface)
         != VK_SUCCESS) {
@@ -369,7 +399,7 @@ VkSurfaceKHR WindowWinRT::createSurface(VkInstance instance) {
         return VK_NULL_HANDLE;
     }
 
-    std::printf("Win32 surface created (via WinRT window)\n");
+    std::printf("Vulkan surface created (render child HWND)\n");
     return m_surface;
 }
 
@@ -384,16 +414,16 @@ void WindowWinRT::destroySurface(VkInstance instance) {
 }
 
 // ===========================================================================
-// getFramebufferSize
+// getFramebufferSize — returns the render child HWND's client area
 // ===========================================================================
 void WindowWinRT::getFramebufferSize(int& w, int& h) {
-    if (!m_hwnd) {
+    if (!m_renderHwnd) {
         w = m_width;
         h = m_height;
         return;
     }
     RECT r;
-    GetClientRect(m_hwnd, &r);
+    GetClientRect(m_renderHwnd, &r);
     w = r.right - r.left;
     h = r.bottom - r.top;
 }

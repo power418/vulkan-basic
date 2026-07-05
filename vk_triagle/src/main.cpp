@@ -1,5 +1,6 @@
 #include "args.hpp"
 #include "app.hpp"
+
 #include <cstdio>
 
 int main(int argc, char* argv[]) {
