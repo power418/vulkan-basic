@@ -1,0 +1,68 @@
+[
+{
+  "directory": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug",
+  "command": "C:\\Users\\Administrator\\scoop\\apps\\llvm\\current\\bin\\clang-cl.exe  /nologo -TP -DNOMINMAX -DVK_USE_PLATFORM_WIN32_KHR -DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\utils -imsvcC:\\VulkanSDK\\1.4.350.0\\include /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++latest -MDd /FoCMakeFiles\\main.dir\\src\\main.cpp.obj /FdCMakeFiles\\main.dir\\ -c -- C:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src\\main.cpp",
+  "file": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/src/main.cpp",
+  "output": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug/CMakeFiles/main.dir/src/main.cpp.obj"
+},
+{
+  "directory": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug",
+  "command": "C:\\Users\\Administrator\\scoop\\apps\\llvm\\current\\bin\\clang-cl.exe  /nologo -TP -DNOMINMAX -DVK_USE_PLATFORM_WIN32_KHR -DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\utils -imsvcC:\\VulkanSDK\\1.4.350.0\\include /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++latest -MDd /FoCMakeFiles\\main.dir\\src\\app.cpp.obj /FdCMakeFiles\\main.dir\\ -c -- C:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src\\app.cpp",
+  "file": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/src/app.cpp",
+  "output": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug/CMakeFiles/main.dir/src/app.cpp.obj"
+},
+{
+  "directory": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug",
+  "command": "C:\\Users\\Administrator\\scoop\\apps\\llvm\\current\\bin\\clang-cl.exe  /nologo -TP -DNOMINMAX -DVK_USE_PLATFORM_WIN32_KHR -DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\utils -imsvcC:\\VulkanSDK\\1.4.350.0\\include /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++latest -MDd /FoCMakeFiles\\main.dir\\src\\args.cpp.obj /FdCMakeFiles\\main.dir\\ -c -- C:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src\\args.cpp",
+  "file": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/src/args.cpp",
+  "output": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug/CMakeFiles/main.dir/src/args.cpp.obj"
+},
+{
+  "directory": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug",
+  "command": "C:\\Users\\Administrator\\scoop\\apps\\llvm\\current\\bin\\clang-cl.exe  /nologo -TP -DNOMINMAX -DVK_USE_PLATFORM_WIN32_KHR -DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\utils -imsvcC:\\VulkanSDK\\1.4.350.0\\include /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++latest -MDd /FoCMakeFiles\\main.dir\\src\\shader_compiler.cpp.obj /FdCMakeFiles\\main.dir\\ -c -- C:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src\\shader_compiler.cpp",
+  "file": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/src/shader_compiler.cpp",
+  "output": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug/CMakeFiles/main.dir/src/shader_compiler.cpp.obj"
+},
+{
+  "directory": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug",
+  "command": "C:\\Users\\Administrator\\scoop\\apps\\llvm\\current\\bin\\clang-cl.exe  /nologo -TP -DNOMINMAX -DVK_USE_PLATFORM_WIN32_KHR -DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\utils -imsvcC:\\VulkanSDK\\1.4.350.0\\include /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++latest -MDd /FoCMakeFiles\\main.dir\\src\\platform\\platform.cpp.obj /FdCMakeFiles\\main.dir\\ -c -- C:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src\\platform\\platform.cpp",
+  "file": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/src/platform/platform.cpp",
+  "output": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug/CMakeFiles/main.dir/src/platform/platform.cpp.obj"
+},
+{
+  "directory": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug",
+  "command": "C:\\Users\\Administrator\\scoop\\apps\\llvm\\current\\bin\\clang-cl.exe  /nologo -TP -DNOMINMAX -DVK_USE_PLATFORM_WIN32_KHR -DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\utils -imsvcC:\\VulkanSDK\\1.4.350.0\\include /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++latest -MDd /FoCMakeFiles\\main.dir\\src\\platform\\win32\\window_win32.cpp.obj /FdCMakeFiles\\main.dir\\ -c -- C:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src\\platform\\win32\\window_win32.cpp",
+  "file": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/src/platform/win32/window_win32.cpp",
+  "output": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug/CMakeFiles/main.dir/src/platform/win32/window_win32.cpp.obj"
+},
+{
+  "directory": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug",
+  "command": "C:\\Users\\Administrator\\scoop\\apps\\llvm\\current\\bin\\clang-cl.exe  /nologo -TP -DNOMINMAX -DVK_USE_PLATFORM_WIN32_KHR -DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\utils -imsvcC:\\VulkanSDK\\1.4.350.0\\include /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++latest -MDd /FoCMakeFiles\\main.dir\\src\\platform\\win32\\menubar.cpp.obj /FdCMakeFiles\\main.dir\\ -c -- C:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src\\platform\\win32\\menubar.cpp",
+  "file": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/src/platform/win32/menubar.cpp",
+  "output": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug/CMakeFiles/main.dir/src/platform/win32/menubar.cpp.obj"
+},
+{
+  "directory": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug",
+  "command": "C:\\Users\\Administrator\\scoop\\apps\\llvm\\current\\bin\\clang-cl.exe  /nologo -TP -DNOMINMAX -DVK_USE_PLATFORM_WIN32_KHR -DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\utils -imsvcC:\\VulkanSDK\\1.4.350.0\\include /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++latest -MDd /FoCMakeFiles\\main.dir\\src\\platform\\winrt\\menubar.cpp.obj /FdCMakeFiles\\main.dir\\ -c -- C:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src\\platform\\winrt\\menubar.cpp",
+  "file": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/src/platform/winrt/menubar.cpp",
+  "output": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug/CMakeFiles/main.dir/src/platform/winrt/menubar.cpp.obj"
+},
+{
+  "directory": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug",
+  "command": "C:\\Users\\Administrator\\scoop\\apps\\llvm\\current\\bin\\clang-cl.exe  /nologo -TP -DNOMINMAX -DVK_USE_PLATFORM_WIN32_KHR -DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\utils -imsvcC:\\VulkanSDK\\1.4.350.0\\include /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++latest -MDd /FoCMakeFiles\\main.dir\\src\\platform\\winrt\\window_winrt.cpp.obj /FdCMakeFiles\\main.dir\\ -c -- C:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src\\platform\\winrt\\window_winrt.cpp",
+  "file": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/src/platform/winrt/window_winrt.cpp",
+  "output": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug/CMakeFiles/main.dir/src/platform/winrt/window_winrt.cpp.obj"
+},
+{
+  "directory": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug",
+  "command": "C:\\Users\\Administrator\\scoop\\apps\\llvm\\current\\bin\\clang-cl.exe  /nologo -TP -DNOMINMAX -DVK_USE_PLATFORM_WIN32_KHR -DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\utils -imsvcC:\\VulkanSDK\\1.4.350.0\\include /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++latest -MDd /FoCMakeFiles\\main.dir\\src\\renderer\\vulkan_renderer.cpp.obj /FdCMakeFiles\\main.dir\\ -c -- C:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src\\renderer\\vulkan_renderer.cpp",
+  "file": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/src/renderer/vulkan_renderer.cpp",
+  "output": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug/CMakeFiles/main.dir/src/renderer/vulkan_renderer.cpp.obj"
+},
+{
+  "directory": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug",
+  "command": "C:\\Users\\Administrator\\scoop\\apps\\llvm\\current\\bin\\clang-cl.exe  /nologo -TP -DNOMINMAX -DVK_USE_PLATFORM_WIN32_KHR -DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src -IC:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\utils -imsvcC:\\VulkanSDK\\1.4.350.0\\include /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++latest -MDd /FoCMakeFiles\\main.dir\\src\\renderer\\vulkan_texture.cpp.obj /FdCMakeFiles\\main.dir\\ -c -- C:\\Users\\Administrator\\Documents\\Projects\\vulkan-basic\\vk_triangle_rotation\\src\\renderer\\vulkan_texture.cpp",
+  "file": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/src/renderer/vulkan_texture.cpp",
+  "output": "C:/Users/Administrator/Documents/Projects/vulkan-basic/vk_triangle_rotation/build/clang-debug/CMakeFiles/main.dir/src/renderer/vulkan_texture.cpp.obj"
+}
+]

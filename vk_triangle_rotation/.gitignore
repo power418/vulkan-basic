@@ -1,0 +1,10 @@
+/.cache/*
+/build/*
+/Debug/*
+/Release/*
+/shaders_spv/*
+/bin/*
+
+*.txt
+*.exe
+*.out
