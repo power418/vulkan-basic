@@ -1,0 +1,12 @@
+Platform: mode=win-aero-enable -> Win32 window
+Win32MenuBar: created
+Win32 window created (800x600), menubar=Win32-SetMenu
+Vulkan instance created
+Win32 surface created
+GPU: Intel(R) Iris(R) Xe Graphics
+Swapchain: 3 images, 800x600
+Graphics pipeline created
+Uniform buffer created (64 bytes)
+Loaded texture: src/res/wowo_pencinta_sawit.png (1254x1254, 3 channels)
+Texture created: 1254x1254
+Swapchain: 3 images, 802x613

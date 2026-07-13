@@ -138,7 +138,7 @@ else()
     message(WARNING "shader compiler not found -- run compile.bat first")
 endif()
 
-# ---- copy SPIR-V to target output dir so relative paths always work -------
+# ---- copy SPIR-V & font to target output dir so relative paths always work -------
 if(TARGET main)
     # Use generator expression so multi-config (Debug/Release) works
     add_custom_command(TARGET main POST_BUILD
@@ -150,6 +150,24 @@ if(TARGET main)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_SOURCE_DIR}/shaders_spv/triangle.frag.spv"
             "$<TARGET_FILE_DIR:main>/shaders_spv/triangle.frag.spv"
-        COMMENT "Copying SPIR-V to output directory"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/utils/pixantiqua.ttf"
+            "$<TARGET_FILE_DIR:main>/pixantiqua.ttf"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/src/res/bgm/fish.mp3"
+            "$<TARGET_FILE_DIR:main>/fish.mp3"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/src/res/voice/hidup_jokowi.mp3"
+            "$<TARGET_FILE_DIR:main>/hidup_jokowi.mp3"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/src/res/wowo_pencinta_sawit.png"
+            "$<TARGET_FILE_DIR:main>/wowo_pencinta_sawit.png"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/src/res/gibran.png"
+            "$<TARGET_FILE_DIR:main>/gibran.png"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/src/res/jokowi.png"
+            "$<TARGET_FILE_DIR:main>/jokowi.png"
+        COMMENT "Copying SPIR-V, font, audio, and textures to output directory"
     )
 endif()

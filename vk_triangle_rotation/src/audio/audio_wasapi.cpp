@@ -225,6 +225,7 @@ bool AudioWasapi::initCapture(int sampleRate) {
 // Threads
 // ---------------------------------------------------------------------------
 void AudioWasapi::renderThreadLoop() {
+    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     DWORD taskIndex = 0;
     HANDLE hTask = AvSetMmThreadCharacteristicsW(L"Pro Audio", &taskIndex);
     
@@ -255,9 +256,11 @@ void AudioWasapi::renderThreadLoop() {
     }
 
     if (hTask) AvRevertMmThreadCharacteristics(hTask);
+    CoUninitialize();
 }
 
 void AudioWasapi::captureThreadLoop() {
+    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     DWORD taskIndex = 0;
     HANDLE hTask = AvSetMmThreadCharacteristicsW(L"Pro Audio", &taskIndex);
     
@@ -290,6 +293,7 @@ void AudioWasapi::captureThreadLoop() {
     }
 
     if (hTask) AvRevertMmThreadCharacteristics(hTask);
+    CoUninitialize();
 }
 
 } // namespace audio

@@ -1,0 +1,15 @@
+Validation Error: [ VUID-VkGraphicsPipelineCreateInfo-layout-07988 ] | MessageID = 0x215f02cd
+vkCreateGraphicsPipelines(): pCreateInfos[0].pStages[1] shader [VK_SHADER_STAGE_FRAGMENT_BIT] uses descriptor [Set 0, Binding 0, variable "tex"] (VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) but the VkDescriptorSetLayoutBinding::stageFlags was VK_SHADER_STAGE_VERTEX_BIT.
+(VkDescriptorSetLayout from VkPipelineLayoutCreateInfo::pSetLayouts[0]).
+The Vulkan spec states: If a resource variable is declared in a shader and layout is not VK_NULL_HANDLE, the corresponding descriptor set in layout must match the shader stage (https://docs.vulkan.org/spec/latest/chapters/pipelines.html#VUID-VkGraphicsPipelineCreateInfo-layout-07988)
+Objects: 2
+    [0] VkShaderModule 0xc000000000c
+    [1] VkDescriptorSetLayout 0xa000000000a
+
+Validation Error: [ VUID-VkGraphicsPipelineCreateInfo-layout-07988 ] | MessageID = 0x215f02cd
+vkCreateGraphicsPipelines(): pCreateInfos[0].pStages[1] shader [VK_SHADER_STAGE_FRAGMENT_BIT] uses descriptor [Set 0, Binding 0, variable "samp"] (VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) but the VkDescriptorSetLayoutBinding::stageFlags was VK_SHADER_STAGE_VERTEX_BIT.
+(VkDescriptorSetLayout from VkPipelineLayoutCreateInfo::pSetLayouts[0]).
+The Vulkan spec states: If a resource variable is declared in a shader and layout is not VK_NULL_HANDLE, the corresponding descriptor set in layout must match the shader stage (https://docs.vulkan.org/spec/latest/chapters/pipelines.html#VUID-VkGraphicsPipelineCreateInfo-layout-07988)
+Objects: 2
+    [0] VkShaderModule 0xc000000000c
+    [1] VkDescriptorSetLayout 0xa000000000a

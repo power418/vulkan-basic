@@ -5,6 +5,5 @@
 /shaders_spv/*
 /bin/*
 
-*.txt
 *.exe
 *.out

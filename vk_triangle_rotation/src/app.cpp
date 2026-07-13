@@ -11,6 +11,16 @@
 #include <cmath>
 #include "../utils/math3d.hpp"
 
+// Helper: resolve filename relative to executable directory
+static std::string getExeRelativePath(const char* filename) {
+    char buf[MAX_PATH];
+    DWORD len = GetModuleFileNameA(NULL, buf, MAX_PATH);
+    if (len == 0 || len >= MAX_PATH) return filename;
+    char* sep = strrchr(buf, '\\');
+    if (sep) *(sep + 1) = '\0'; else buf[0] = '\0';
+    return std::string(buf) + filename;
+}
+
 // Helper Hit Testing
 static Vec4 mulMat4Vec4(const Mat4& m, const Vec4& v) {
     Vec4 r;
@@ -83,7 +93,8 @@ bool App::init() {
     // Load MP3 BGM
     drmp3_config mp3Config;
     drmp3_uint64 totalFrames = 0;
-    float* pFrames = drmp3_open_file_and_read_pcm_frames_f32("../../src/res/bgm/fish.mp3", &mp3Config, &totalFrames, nullptr);
+    auto bgmPath = getExeRelativePath("fish.mp3");
+    float* pFrames = drmp3_open_file_and_read_pcm_frames_f32(bgmPath.c_str(), &mp3Config, &totalFrames, nullptr);
     if (pFrames) {
         m_bgmSampleRate = mp3Config.sampleRate;
         m_bgmChannels = mp3Config.channels;
@@ -92,18 +103,19 @@ bool App::init() {
         drmp3_free(pFrames, nullptr);
         std::printf("BGM Loaded: %zu frames, %d Hz, %d channels\n", static_cast<size_t>(totalFrames), m_bgmSampleRate, m_bgmChannels);
     } else {
-        std::printf("WARNING: Failed to load src/res/bgm/fish.mp3\n");
+        std::printf("WARNING: Failed to load fish.mp3 from: %s\n", bgmPath.c_str());
     }
 
     // Load SFX
-    float* pSfxFrames = drmp3_open_file_and_read_pcm_frames_f32("../../src/res/voice/hidup_jokowi.mp3", &mp3Config, &totalFrames, nullptr);
+    auto sfxPath = getExeRelativePath("hidup_jokowi.mp3");
+    float* pSfxFrames = drmp3_open_file_and_read_pcm_frames_f32(sfxPath.c_str(), &mp3Config, &totalFrames, nullptr);
     if (pSfxFrames) {
         size_t totalSamples = static_cast<size_t>(totalFrames) * mp3Config.channels;
         m_sfxFrames.assign(pSfxFrames, pSfxFrames + totalSamples);
         drmp3_free(pSfxFrames, nullptr);
         std::printf("SFX Loaded: %zu frames, %d channels\n", static_cast<size_t>(totalFrames), mp3Config.channels);
     } else {
-        std::printf("WARNING: Failed to load src/res/voice/hidup_jokowi.mp3\n");
+        std::printf("WARNING: Failed to load hidup_jokowi.mp3 from: %s\n", sfxPath.c_str());
     }
 
     if (m_audio && m_audio->init(m_bgmSampleRate)) {

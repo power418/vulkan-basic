@@ -18,7 +18,18 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+
 #include <set>
+
+// Resolve a filename relative to the executable's directory.
+static std::string getExeRelativePath(const char* filename) {
+    char buf[MAX_PATH];
+    DWORD len = GetModuleFileNameA(NULL, buf, MAX_PATH);
+    if (len == 0 || len >= MAX_PATH) return filename;
+    char* sep = strrchr(buf, '\\');
+    if (sep) *(sep + 1) = '\0'; else buf[0] = '\0';
+    return std::string(buf) + filename;
+}
 
 // ===========================================================================
 // init  –  urutan inisialisasi
@@ -596,7 +607,7 @@ bool VulkanRenderer::createFramebuffers() {
 // Vertex buffer  –  dibuat dari GeometryController (polygon N-gon)
 // ===========================================================================
 bool VulkanRenderer::createVertexBuffer() {
-  auto verts = GeometryController::generatePolygon(m_polygonSides, 1.0f);
+  auto verts = GeometryController::generatePolygon(m_polygonSides, 1.5f);
   m_vertexCount = static_cast<uint32_t>(verts.size());
   VkDeviceSize size = verts.size() * sizeof(Vertex);
 
@@ -681,7 +692,8 @@ bool VulkanRenderer::createTextureImage() {
   // Jika path kosong, coba default texture
   if (path.empty()) {
     // Coba beberapa lokasi umum
-    const char *candidates[] = {
+    const std::string candidates[] = {
+        getExeRelativePath("wowo_pencinta_sawit.png"),
         "src/res/wowo_pencinta_sawit.png",
         "../src/res/wowo_pencinta_sawit.png",
         "../../src/res/wowo_pencinta_sawit.png",
@@ -689,8 +701,8 @@ bool VulkanRenderer::createTextureImage() {
     };
 
     auto candIt = std::find_if(std::begin(candidates), std::end(candidates),
-                               [](const char *c) {
-                                 if (FILE *f = std::fopen(c, "rb")) {
+                               [](const std::string &c) {
+                                 if (FILE *f = std::fopen(c.c_str(), "rb")) {
                                    std::fclose(f);
                                    return true;
                                  }
@@ -1127,15 +1139,15 @@ bool VulkanRenderer::draw() {
   float buttonWidth = (windowWidth - spacing * 2.0f) / 3.0f;
 
   if (ImGui::Button("Prabowo", ImVec2(buttonWidth, 0))) {
-    changeTexture("../../src/res/wowo_pencinta_sawit.png");
+    changeTexture("wowo_pencinta_sawit.png");
   }
   ImGui::SameLine();
   if (ImGui::Button("Gibran", ImVec2(buttonWidth, 0))) {
-    changeTexture("../../src/res/gibran.png");
+    changeTexture("gibran.png");
   }
   ImGui::SameLine();
   if (ImGui::Button("Jokowi", ImVec2(buttonWidth, 0))) {
-    changeTexture("../../src/res/jokowi.png");
+    changeTexture("jokowi.png");
   }
   ImGui::End();
 
@@ -1330,8 +1342,11 @@ bool VulkanRenderer::initImGui() {
   // Load default font first so normal ImGui uses it
   io.Fonts->AddFontDefault();
   // Load custom font at 64px for the score specifically
-  m_scoreFont =
-      io.Fonts->AddFontFromFileTTF("../../utils/pixantiqua.ttf", 64.0f);
+  {
+    auto fontPath = getExeRelativePath("pixantiqua.ttf");
+    m_scoreFont =
+        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 64.0f);
+  }
 
   ImGui::StyleColorsDark();
 
@@ -1400,7 +1415,8 @@ void VulkanRenderer::updateScoreTexture() {
   std::vector<uint8_t> buffer = m_texture.cpuPixels;
 
   // Load raylib example font
-  FILE *f = fopen("../../utils/pixantiqua.ttf", "rb");
+  auto fontPath = getExeRelativePath("pixantiqua.ttf");
+  FILE *f = fopen(fontPath.c_str(), "rb");
   if (f) {
     fseek(f, 0, SEEK_END);
     size_t size = ftell(f);
@@ -1463,7 +1479,7 @@ void VulkanRenderer::updateScoreTexture() {
       std::printf("Failed to init stbtt font\n");
     }
   } else {
-    std::printf("ERROR: Failed to open font file ../../utils/pixantiqua.ttf\n");
+    std::printf("ERROR: Failed to open font file at: %s\n", fontPath.c_str());
   }
 
   // Upload to GPU
@@ -1487,13 +1503,16 @@ void VulkanRenderer::changeTexture(const std::string &texturePath) {
   // Destroy old texture
   destroyTexture(m_dev, m_texture);
 
+  // Resolve path relative to executable directory
+  std::string fullPath = getExeRelativePath(texturePath.c_str());
+
   // Load new texture
   if (!loadTextureFromFile(m_dev, m_physDev, m_cmdPool, m_gfxQueue,
-                           texturePath.c_str(), m_texture)) {
-    std::printf("Failed to load new texture: %s\n", texturePath.c_str());
+                           fullPath.c_str(), m_texture)) {
+    std::printf("Failed to load new texture: %s\n", fullPath.c_str());
     return;
   }
-  m_texturePath = texturePath;
+  m_texturePath = fullPath;
 
   // Update descriptor set with new texture
   VkDescriptorImageInfo imageInfo{};
