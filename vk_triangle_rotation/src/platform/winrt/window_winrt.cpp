@@ -150,7 +150,9 @@ LRESULT CALLBACK WindowWinRT::renderWndProc(HWND hwnd, UINT msg,
         return 0;
     case WM_LBUTTONDOWN:
         if (win && win->m_mouseClickCallback) {
-            win->m_mouseClickCallback();
+            int x = (short)LOWORD(lParam);
+            int y = (short)HIWORD(lParam);
+            win->m_mouseClickCallback(x, y);
         }
         return 0;
     case WM_SETCURSOR:

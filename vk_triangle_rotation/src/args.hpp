@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <string>
 
 struct Args {
@@ -10,6 +11,7 @@ struct Args {
     std::string vertShader  = "shaders_spv/triangle.vert.spv";
     std::string fragShader  = "shaders_spv/triangle.frag.spv";
     std::string mode        = "win-aero-enable";   // win-aero-enable | win-aero-disable
+    size_t cuman_angka;
 };
 
 Args parseArgs(int argc, char* argv[]);

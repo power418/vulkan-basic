@@ -3,7 +3,8 @@
 
 #include <cstdio>
 
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[]) 
+{
     Args args = parseArgs(argc, argv);
 
     if (args.help) {

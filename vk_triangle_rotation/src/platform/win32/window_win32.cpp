@@ -46,7 +46,9 @@ LRESULT CALLBACK WindowWin32::wndProc(HWND hwnd, UINT msg,
 
     case WM_LBUTTONDOWN:
         if (win && win->m_mouseClickCallback) {
-            win->m_mouseClickCallback();
+            int x = (short)LOWORD(lParam);
+            int y = (short)HIWORD(lParam);
+            win->m_mouseClickCallback(x, y);
         }
         return 0;
 

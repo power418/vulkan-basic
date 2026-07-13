@@ -182,9 +182,13 @@ bool createTextureFromPixels(VkDevice device,
                               VkQueue gfxQueue,
                               const uint8_t* pixels,
                               uint32_t width, uint32_t height,
-                              VulkanTexture& outTex) {
+                              VulkanTexture& outTex,
+                              bool keepCpuPixels) {
     outTex.width  = width;
     outTex.height = height;
+    if (keepCpuPixels) {
+        outTex.cpuPixels.assign(pixels, pixels + (width * height * 4));
+    }
     VkDeviceSize imageSize = width * height * 4;
 
     // --- staging buffer ---
@@ -325,7 +329,7 @@ bool loadTextureFromFile(VkDevice device,
         uint32_t fw = 256, fh = 256;
         auto checker = generateCheckerboard(fw, fh);
         bool ok = createTextureFromPixels(device, physDevice, cmdPool, gfxQueue,
-                                           checker.data(), fw, fh, outTex);
+                                           checker.data(), fw, fh, outTex, true);
         return ok;
     }
 
@@ -333,7 +337,7 @@ bool loadTextureFromFile(VkDevice device,
                                        pixels,
                                        static_cast<uint32_t>(w),
                                        static_cast<uint32_t>(h),
-                                       outTex);
+                                       outTex, true);
     stbi_image_free(pixels);
     return ok;
 }
@@ -347,4 +351,49 @@ void destroyTexture(VkDevice device, VulkanTexture& tex) {
     if (tex.image)   vkDestroyImage(device, tex.image, nullptr);
     if (tex.memory)  vkFreeMemory(device, tex.memory, nullptr);
     tex = {};
+}
+
+// ===========================================================================
+// updateTextureSubresource
+// ===========================================================================
+bool updateTextureSubresource(VkDevice device,
+                              VkPhysicalDevice physDevice,
+                              VkCommandPool cmdPool,
+                              VkQueue gfxQueue,
+                              VulkanTexture& tex,
+                              const uint8_t* pixels,
+                              uint32_t width, uint32_t height) {
+    VkDeviceSize imageSize = width * height * 4;
+
+    VkBuffer stagingBuf;
+    VkDeviceMemory stagingMem;
+    if (!createBuffer(device, physDevice, imageSize,
+                       VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                       stagingBuf, stagingMem)) {
+        return false;
+    }
+
+    void* data;
+    vkMapMemory(device, stagingMem, 0, imageSize, 0, &data);
+    std::memcpy(data, pixels, imageSize);
+    vkUnmapMemory(device, stagingMem);
+
+    // Transition SHADER_READ -> TRANSFER_DST
+    transitionImageLayout(device, cmdPool, gfxQueue, tex.image,
+                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    copyBufferToImage(device, cmdPool, gfxQueue, stagingBuf,
+                       tex.image, width, height);
+
+    // Transition TRANSFER_DST -> SHADER_READ
+    transitionImageLayout(device, cmdPool, gfxQueue, tex.image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    vkDestroyBuffer(device, stagingBuf, nullptr);
+    vkFreeMemory(device, stagingMem, nullptr);
+    return true;
 }

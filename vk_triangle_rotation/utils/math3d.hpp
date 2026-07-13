@@ -1,11 +1,19 @@
 #pragma once
 /*
  * math3d.hpp – utilitas 3D math
- * Menyediakan Vec3, Vec4, Mat4 untuk transformasi 3D
+ * Menyediakan Vec3, Vec4, Mat4, Vertex untuk transformasi 3D
  * Semua matriks disimpan dalam format row-major: m[row][col]
  */
 #include <cmath>
 #include <cstring>  // memset
+
+// ------------------------------------------------------------
+// Konstanta
+// ------------------------------------------------------------
+#ifndef M3D_PI
+#define M3D_PI      3.14159265358979323846f
+#define M3D_TWO_PI  6.28318530717958647692f
+#endif
 
 // ------------------------------------------------------------
 // Vec3 – vektor 3 komponen (x, y, z)
@@ -78,6 +86,30 @@ struct Mat4 {
     }
 
     // --------------------------------------------------------
+    // Matriks rotasi terhadap sumbu X (sudut dalam radian)
+    // --------------------------------------------------------
+    static Mat4 rotationX(float angle) {
+        Mat4 r = identity();
+        float c = std::cos(angle);
+        float s = std::sin(angle);
+        r.m[1][1] = c;  r.m[1][2] = -s;
+        r.m[2][1] = s;  r.m[2][2] = c;
+        return r;
+    }
+
+    // --------------------------------------------------------
+    // Matriks rotasi terhadap sumbu Z (sudut dalam radian)
+    // --------------------------------------------------------
+    static Mat4 rotationZ(float angle) {
+        Mat4 r = identity();
+        float c = std::cos(angle);
+        float s = std::sin(angle);
+        r.m[0][0] = c;  r.m[0][1] = -s;
+        r.m[1][0] = s;  r.m[1][1] = c;
+        return r;
+    }
+
+    // --------------------------------------------------------
     // Matriks translasi
     // --------------------------------------------------------
     static Mat4 translation(float x, float y, float z) {
@@ -115,4 +147,16 @@ struct Mat4 {
     // Pointer ke data mentah (16 float) – untuk dikirim ke GPU
     // --------------------------------------------------------
     const float* data() const { return &m[0][0]; }
+};
+
+// ------------------------------------------------------------
+// Vertex – format vertex standar untuk pipeline grafis
+//   pos[3]   = posisi (x, y, z)
+//   color[3] = warna  (r, g, b)
+//   uv[2]    = texcoord (u, v)
+// ------------------------------------------------------------
+struct Vertex {
+    float pos[3];
+    float color[3];
+    float uv[2];
 };

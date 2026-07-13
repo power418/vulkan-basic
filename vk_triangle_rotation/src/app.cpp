@@ -7,7 +7,7 @@
 #include <vector>
 
 #define DR_MP3_IMPLEMENTATION
-#include "dr_mp3.h"
+#include "../utils/dr_mp3.h"
 #include <cmath>
 #include "../utils/math3d.hpp"
 
@@ -181,8 +181,12 @@ bool App::init() {
     m_window->setRenderCallback([this]() {
         int w = 0, h = 0;
         m_window->getFramebufferSize(w, h);
-        if (w > 0 && h > 0) m_renderer->draw();
+        if (w > 0 && h > 0 && m_renderer) {
+            m_renderer->draw();
+        }
     });
+
+    // Callback now merged below after isHovering is defined
 
     // Caching status hit agar tidak selalu update cursor ke OS
     static bool isHovering = false;
@@ -233,11 +237,14 @@ bool App::init() {
         }
     });
 
-    m_window->setMouseClickCallback([this]() {
+    m_window->setMouseClickCallback([this](int x, int y) {
         if (isHovering) {
             // Trigger suara SFX Bertumpuk (Polyphony)
             std::lock_guard<std::mutex> lock(m_sfxMutex);
             m_sfxPlayheads.push_back(0); // Spawn new voice
+        }
+        if (m_renderer) {
+            m_renderer->handleMouseClick(x, y);
         }
     });
 

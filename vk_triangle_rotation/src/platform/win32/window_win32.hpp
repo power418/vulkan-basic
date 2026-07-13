@@ -24,7 +24,7 @@ public:
     void setRenderCallback(std::function<void()> cb) override { m_renderCallback = cb; }
 
     void setMouseMoveCallback(std::function<void(int x, int y)> cb) override { m_mouseMoveCallback = cb; }
-    void setMouseClickCallback(std::function<void()> cb) override { m_mouseClickCallback = cb; }
+    void setMouseClickCallback(std::function<void(int x, int y)> cb) override { m_mouseClickCallback = cb; }
 
     void setCursorToHand(bool isHand) override;
 
@@ -41,7 +41,7 @@ private:
     Win32MenuBar m_menuBar;
     std::function<void()> m_renderCallback;
     std::function<void(int x, int y)> m_mouseMoveCallback;
-    std::function<void()> m_mouseClickCallback;
+    std::function<void(int x, int y)> m_mouseClickCallback;
     bool m_isHandCursor = false;
 
     static LRESULT CALLBACK wndProc(HWND hwnd, UINT msg,

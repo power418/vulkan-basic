@@ -1,10 +1,12 @@
 #pragma once
 #include "renderer.hpp"
 #include "vulkan_texture.hpp"
-#include <vulkan/vulkan.h>
 #include <array>
 #include <string>
 #include <vector>
+#include <imgui.h>
+#include <vulkan/vulkan.h>
+#include "../utils/math3d.hpp"
 
 class VulkanRenderer : public Renderer {
 public:
@@ -20,12 +22,24 @@ public:
     bool initImGui();
     void cleanupImGui();
 
+    void handleMouseClick(int x, int y) override;
+
+    void changeTexture(const std::string& texturePath);
+
 private:
+    void updateScoreTexture();
     Window* m_window          = nullptr;
     bool    m_validation      = false;
+    float   m_rotationSpeed   = 1.0f;
+    float   m_angle           = 0.0f;
+    int     m_score           = 0;
+    int     m_polygonSides    = 4;     // piramida default = 4 sisi alas
+    uint32_t m_vertexCount    = 18;    // jumlah vertex aktif
+    
+    struct ImFont* m_scoreFont = nullptr;
+
     std::string m_vertPath, m_fragPath;
     std::string m_texturePath;
-    float       m_rotationSpeed = 0.9f;
 
     // -- Vulkan handles ------------------------------------------------------
     VkInstance       m_instance       = VK_NULL_HANDLE;
@@ -48,6 +62,12 @@ private:
     // -- Uniform buffer (MVP) ------------------------------------------------
     VkBuffer         m_ubo            = VK_NULL_HANDLE;
     VkDeviceMemory   m_uboMem         = VK_NULL_HANDLE;
+
+    // -- Depth buffer --------------------------------------------------------
+    VkImage          m_depthImage     = VK_NULL_HANDLE;
+    VkDeviceMemory   m_depthImageMem  = VK_NULL_HANDLE;
+    VkImageView      m_depthImageView = VK_NULL_HANDLE;
+    VkFormat         m_depthFormat    = VK_FORMAT_UNDEFINED;
 
     // -- Descriptor ----------------------------------------------------------
     VkDescriptorSetLayout m_descLayout = VK_NULL_HANDLE;
@@ -73,8 +93,10 @@ private:
     std::array<VkFence,     MAX_FRAMES_IN_FLIGHT> m_fences{};
     uint32_t m_currentFrame = 0;
 
-    // -- Animasi -------------------------------------------------------------
-    float m_angle = 0.0f;  // sudut rotasi segitiga (radian)
+    // -- Animasi & Camera ----------------------------------------------------
+    float m_rotX = 0.0f; // Pitch (rotasi sumbu X)
+    float m_rotY = 0.0f; // Yaw (rotasi sumbu Y)
+    float m_cameraDistance = 3.5f; // Jarak kamera dari objek (Z-axis)
 
     // -- helpers -------------------------------------------------------------
     bool createInstance(const std::vector<const char*>& extensions);
@@ -95,6 +117,9 @@ private:
     bool createCommandBuffers();
     bool createSyncObjects();
     bool createTextureImage();
+    bool createDepthResources();
+    bool rebuildVertexBuffer(int sides);
 
+    VkFormat findDepthFormat();
     uint32_t findMemoryType(uint32_t filter, VkMemoryPropertyFlags props);
 };

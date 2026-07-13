@@ -12,4 +12,5 @@ public:
     virtual void cleanup() = 0;
     
     virtual float getAngle() const { return 0.0f; }
+    virtual void handleMouseClick(int x, int y) {}
 };

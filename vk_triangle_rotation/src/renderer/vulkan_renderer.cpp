@@ -1,20 +1,24 @@
 #include "vulkan_renderer.hpp"
-#include "../../utils/math3d.hpp" // Vec3, Vec4, Mat4
+#include "../../utils/math3d.hpp" // Vec3, Vec4, Mat4, Vertex
 #include "../args.hpp"
+#include "../geometry_controller.hpp"
 #include "../platform/window.hpp"
 #include "../shader_compiler.hpp"
 #include "vulkan_texture.hpp"
 
-#include <imgui.h>
-#include <backends/imgui_impl_win32.h>
 #include <backends/imgui_impl_vulkan.h>
+#include <backends/imgui_impl_win32.h>
+#include <imgui.h>
+
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "../../utils/stb_truetype.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <set>
-#include <chrono>
 
 // ===========================================================================
 // init  –  urutan inisialisasi
@@ -28,17 +32,22 @@ bool VulkanRenderer::init(Window *window, const Args &args) {
 
   auto exts = window->getRequiredInstanceExtensions();
 
-  return createInstance(exts) &&
-         (window->createSurface(m_instance) != VK_NULL_HANDLE) &&
-         pickPhysicalDevice() && createDevice() && createSwapchain() &&
-         createRenderPass() &&
-         createDescriptorSetLayout() // harus sebelum pipeline
-         && createPipeline() && createFramebuffers() && createVertexBuffer() &&
-         createUniformBuffer() &&
-         createCommandPool()     // command pool dulu, dibutuhkan texture upload
-         && createTextureImage() // load texture sebelum descriptor
-         && createDescriptorPool() && createDescriptorSet() &&
-         createCommandBuffers() && createSyncObjects() && initImGui();
+  bool ok = createInstance(exts) &&
+            (window->createSurface(m_instance) != VK_NULL_HANDLE) &&
+            pickPhysicalDevice() && createDevice() && createSwapchain() &&
+            createDepthResources() && createRenderPass() &&
+            createDescriptorSetLayout() // harus sebelum pipeline
+            && createPipeline() && createFramebuffers() &&
+            createVertexBuffer() && createUniformBuffer() &&
+            createCommandPool() // command pool dulu, dibutuhkan texture upload
+            && createTextureImage() // load texture sebelum descriptor
+            && createDescriptorPool() && createDescriptorSet() &&
+            createCommandBuffers() && createSyncObjects() && initImGui();
+
+  if (ok) {
+    updateScoreTexture();
+  }
+  return ok;
 }
 
 // ===========================================================================
@@ -92,33 +101,34 @@ bool VulkanRenderer::pickPhysicalDevice() {
   vkEnumeratePhysicalDevices(m_instance, &count, devices.data());
   VkSurfaceKHR surface = m_window->getSurface();
 
-  auto it = std::find_if(devices.begin(), devices.end(), [&](VkPhysicalDevice d) {
-    uint32_t qc = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(d, &qc, nullptr);
-    std::vector<VkQueueFamilyProperties> queues(qc);
-    vkGetPhysicalDeviceQueueFamilyProperties(d, &qc, queues.data());
+  auto it =
+      std::find_if(devices.begin(), devices.end(), [&](VkPhysicalDevice d) {
+        uint32_t qc = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(d, &qc, nullptr);
+        std::vector<VkQueueFamilyProperties> queues(qc);
+        vkGetPhysicalDeviceQueueFamilyProperties(d, &qc, queues.data());
 
-    int32_t gf = -1, pf = -1;
-    for (uint32_t i = 0; i < qc; ++i) {
-      if (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
-        gf = static_cast<int32_t>(i);
-      VkBool32 support = VK_FALSE;
-      vkGetPhysicalDeviceSurfaceSupportKHR(d, i, surface, &support);
-      if (support)
-        pf = static_cast<int32_t>(i);
-    }
+        int32_t gf = -1, pf = -1;
+        for (uint32_t i = 0; i < qc; ++i) {
+          if (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+            gf = static_cast<int32_t>(i);
+          VkBool32 support = VK_FALSE;
+          vkGetPhysicalDeviceSurfaceSupportKHR(d, i, surface, &support);
+          if (support)
+            pf = static_cast<int32_t>(i);
+        }
 
-    uint32_t fc = 0, mc = 0;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(d, surface, &fc, nullptr);
-    vkGetPhysicalDeviceSurfacePresentModesKHR(d, surface, &mc, nullptr);
+        uint32_t fc = 0, mc = 0;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(d, surface, &fc, nullptr);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(d, surface, &mc, nullptr);
 
-    if (gf >= 0 && pf >= 0 && fc > 0 && mc > 0) {
-      m_gfxFamily = static_cast<uint32_t>(gf);
-      m_presFamily = static_cast<uint32_t>(pf);
-      return true;
-    }
-    return false;
-  });
+        if (gf >= 0 && pf >= 0 && fc > 0 && mc > 0) {
+          m_gfxFamily = static_cast<uint32_t>(gf);
+          m_presFamily = static_cast<uint32_t>(pf);
+          return true;
+        }
+        return false;
+      });
 
   if (it != devices.end()) {
     m_physDev = *it;
@@ -199,8 +209,10 @@ bool VulkanRenderer::createSwapchain() {
   vkGetPhysicalDeviceSurfacePresentModesKHR(m_physDev, surface, &mc,
                                             modes.data());
 
-  auto modeIt = std::find(modes.begin(), modes.end(), VK_PRESENT_MODE_MAILBOX_KHR);
-  VkPresentModeKHR mode = (modeIt != modes.end()) ? *modeIt : VK_PRESENT_MODE_FIFO_KHR;
+  auto modeIt =
+      std::find(modes.begin(), modes.end(), VK_PRESENT_MODE_MAILBOX_KHR);
+  VkPresentModeKHR mode =
+      (modeIt != modes.end()) ? *modeIt : VK_PRESENT_MODE_FIFO_KHR;
 
   // --- extent ---
   if (caps.currentExtent.width != UINT32_MAX) {
@@ -280,22 +292,39 @@ bool VulkanRenderer::createRenderPass() {
 
   VkAttachmentReference ref{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
 
+  VkAttachmentDescription depthAtt{};
+  depthAtt.format = m_depthFormat;
+  depthAtt.samples = VK_SAMPLE_COUNT_1_BIT;
+  depthAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  depthAtt.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  depthAtt.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  depthAtt.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  depthAtt.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  depthAtt.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+  VkAttachmentReference depthRef{};
+  depthRef.attachment = 1;
+  depthRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
   VkSubpassDescription sp{};
   sp.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
   sp.colorAttachmentCount = 1;
   sp.pColorAttachments = &ref;
+  sp.pDepthStencilAttachment = &depthRef;
 
   VkSubpassDependency dep{};
   dep.srcSubpass = VK_SUBPASS_EXTERNAL;
   dep.dstSubpass = 0;
-  dep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-  dep.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-  dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  dep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+  dep.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+  dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+  VkAttachmentDescription attachments[2] = {att, depthAtt};
 
   VkRenderPassCreateInfo ci{};
   ci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-  ci.attachmentCount = 1;
-  ci.pAttachments = &att;
+  ci.attachmentCount = 2;
+  ci.pAttachments = attachments;
   ci.subpassCount = 1;
   ci.pSubpasses = &sp;
   ci.dependencyCount = 1;
@@ -398,35 +427,81 @@ bool VulkanRenderer::createPipeline() {
   attr[2].format = VK_FORMAT_R32G32_SFLOAT;
   attr[2].offset = 6 * sizeof(float);
 
+  // ===========================================================================
+  // 1. VERTEX INPUT STATE (Pipeline Vertex Input)
+  // Filosofi Vulkan: Berbeda dengan OpenGL yang menyimpan state di dalam VAO (Vertex Array Object), 
+  // Vulkan mewajibkan kita mendeklarasikan format vertex (layout memori) ke dalam Pipeline secara statis/di awal.
+  // Secara harfiah: `vi` (Vertex Input) mengikat deskripsi "bentuk" data vertex kita 
+  // (seperti berapa ukurannya/stride, dan tipe datanya seperti float3) kepada shader.
+  // ===========================================================================
   VkPipelineVertexInputStateCreateInfo vi{};
   vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
   vi.vertexBindingDescriptionCount = 1;
-  vi.pVertexBindingDescriptions = &bind;
+  vi.pVertexBindingDescriptions = &bind; // Menjelaskan ukuran 1 Vertex (stride)
   vi.vertexAttributeDescriptionCount = 3;
-  vi.pVertexAttributeDescriptions = attr;
+  vi.pVertexAttributeDescriptions = attr; // Menjelaskan isi di dalam Vertex (Posisi, Warna, UV)
 
+  // ===========================================================================
+  // 2. INPUT ASSEMBLY STATE
+  // Filosofi Vulkan: Menentukan bagaimana GPU merakit kumpulan titik (vertex) tunggal 
+  // menjadi bentuk primitif geometri. 
+  // Secara harfiah: VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST (Macro) berarti setiap 3 titik (vertex) 
+  // akan membentuk 1 segitiga yang saling lepas/independen.
+  // ===========================================================================
   VkPipelineInputAssemblyStateCreateInfo ia{};
   ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
   ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
+  // ===========================================================================
+  // 3. VIEWPORT & SCISSOR STATE
+  // Filosofi Vulkan: Vulkan memisahkan konsep Viewport (transformasi ukuran layar/resolusi) 
+  // dan Scissor (pemotongan/clipping area piksel).
+  // Secara harfiah: Kita membiarkannya `nullptr` karena kita menggunakan "Dynamic State".
+  // Artinya kita bisa mengubah resolusi kapan saja saat me-record Command Buffer 
+  // tanpa harus menghancurkan dan membuat ulang seluruh Pipeline ini.
+  // ===========================================================================
   VkPipelineViewportStateCreateInfo vs{};
   vs.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
   vs.viewportCount = 1;
-  vs.pViewports = nullptr; // Akan di-set secara dinamis
+  vs.pViewports = nullptr; // Akan di-set secara dinamis via vkCmdSetViewport
   vs.scissorCount = 1;
-  vs.pScissors = nullptr;  // Akan di-set secara dinamis
+  vs.pScissors = nullptr; // Akan di-set secara dinamis via vkCmdSetScissor
 
+  // ===========================================================================
+  // 4. RASTERIZATION STATE
+  // Filosofi Vulkan: Ini adalah inti pengubah geometri 3D matematika menjadi piksel 2D.
+  // Macro yang dipakai di sini sangat berpengaruh pada performa dan hasil visual.
+  // Secara harfiah: 
+  // - VK_POLYGON_MODE_FILL: Mengisi penuh area segitiga dengan warna (bukan wireframe).
+  // - VK_CULL_MODE_NONE: Tidak membuang/menyembunyikan sisi belakang (Backface) maupun depan geometri. 
+  //   Penting untuk objek yang bisa dilihat dari segala arah secara bebas.
+  // - VK_FRONT_FACE_CLOCKWISE: Mendefinisikan bahwa vertex yang diurutkan searah jarum jam (Clockwise) adalah sisi depan.
+  // ===========================================================================
   VkPipelineRasterizationStateCreateInfo rs{};
   rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
   rs.polygonMode = VK_POLYGON_MODE_FILL;
-  rs.cullMode = VK_CULL_MODE_BACK_BIT;
+  rs.cullMode = VK_CULL_MODE_NONE; // Matikan Culling agar mesh terlihat menyeluruh saat dirotasi ekstrim
   rs.frontFace = VK_FRONT_FACE_CLOCKWISE;
-  rs.lineWidth = 1.0f;
+  rs.lineWidth = 1.0f; // Tebal garis jika menggunakan polygonMode = LINE (Wireframe)
 
+  // ===========================================================================
+  // 5. MULTISAMPLE STATE (Anti-Aliasing)
+  // Filosofi Vulkan: Konfigurasi untuk menghaluskan pinggiran objek (Edge Smoothing / MSAA).
+  // Secara harfiah: VK_SAMPLE_COUNT_1_BIT berarti kita menonaktifkan MSAA (1 sample per pixel).
+  // Ini paling ringan untuk performa, cocok untuk rendering pixel-art / retro murni.
+  // ===========================================================================
   VkPipelineMultisampleStateCreateInfo ms{};
   ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
   ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
+  // ===========================================================================
+  // 6. COLOR BLEND STATE
+  // Filosofi Vulkan: Setelah Fragment Shader menghitung warna piksel, Vulkan perlu tau 
+  // bagaimana cara menimpa atau mencampur (Blend) piksel baru tersebut ke layar/framebuffer lama.
+  // Secara harfiah: `cbAtt` menargetkan 1 attachment layar.
+  // `colorWriteMask` (Macro R_BIT | G_BIT | B_BIT | A_BIT) mengizinkan GPU menulis 
+  // seluruh channel warna (Red, Green, Blue, Alpha) ke layar.
+  // ===========================================================================
   VkPipelineColorBlendAttachmentState cbAtt{};
   cbAtt.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
@@ -447,15 +522,21 @@ bool VulkanRenderer::createPipeline() {
     return false;
   }
 
-  VkDynamicState dynamicStates[] = {
-      VK_DYNAMIC_STATE_VIEWPORT,
-      VK_DYNAMIC_STATE_SCISSOR
-  };
+  VkDynamicState dynamicStates[] = {VK_DYNAMIC_STATE_VIEWPORT,
+                                    VK_DYNAMIC_STATE_SCISSOR};
 
   VkPipelineDynamicStateCreateInfo dynamicState{};
   dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
   dynamicState.dynamicStateCount = 2;
   dynamicState.pDynamicStates = dynamicStates;
+
+  VkPipelineDepthStencilStateCreateInfo ds{};
+  ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+  ds.depthTestEnable = VK_TRUE;
+  ds.depthWriteEnable = VK_TRUE;
+  ds.depthCompareOp = VK_COMPARE_OP_LESS;
+  ds.depthBoundsTestEnable = VK_FALSE;
+  ds.stencilTestEnable = VK_FALSE;
 
   VkGraphicsPipelineCreateInfo gi{};
   gi.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -466,6 +547,7 @@ bool VulkanRenderer::createPipeline() {
   gi.pViewportState = &vs;
   gi.pRasterizationState = &rs;
   gi.pMultisampleState = &ms;
+  gi.pDepthStencilState = &ds;
   gi.pColorBlendState = &cb;
   gi.pDynamicState = &dynamicState;
   gi.layout = m_pipeLayout;
@@ -492,11 +574,12 @@ bool VulkanRenderer::createPipeline() {
 bool VulkanRenderer::createFramebuffers() {
   m_framebufs.resize(m_swapViews.size());
   for (size_t i = 0; i < m_swapViews.size(); ++i) {
+    VkImageView attachments[] = {m_swapViews[i], m_depthImageView};
     VkFramebufferCreateInfo ci{};
     ci.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
     ci.renderPass = m_renderPass;
-    ci.attachmentCount = 1;
-    ci.pAttachments = &m_swapViews[i];
+    ci.attachmentCount = 2;
+    ci.pAttachments = attachments;
     ci.width = m_swapExtent.width;
     ci.height = m_swapExtent.height;
     ci.layers = 1;
@@ -510,54 +593,12 @@ bool VulkanRenderer::createFramebuffers() {
 }
 
 // ===========================================================================
-// Vertex buffer  –  segitiga 3D (posisi x,y,z + warna r,g,b)
+// Vertex buffer  –  dibuat dari GeometryController (polygon N-gon)
 // ===========================================================================
 bool VulkanRenderer::createVertexBuffer() {
-  // Format: float3 posisi, float3 warna, float2 texcoord = 8 float per vertex
-  struct Vertex {
-    float pos[3];
-    float color[3];
-    float uv[2];
-  };
-  const Vertex verts[] = {
-      // ============ PIRAMIDA DENGAN ALAS PERSEGI ============
-      // Apex (puncak):         ( 0, -1,  0)
-      // Base front-left:       (-1,  1, -1)
-      // Base front-right:      ( 1,  1, -1)
-      // Base back-right:       ( 1,  1,  1)
-      // Base back-left:        (-1,  1,  1)
-
-      // Sisi Depan (Front face)
-      {{ 0.0f, -1.0f,  0.0f}, {1.0f, 0.75f, 0.80f}, {0.50f, 0.05f}},
-      {{ 1.0f,  1.0f, -1.0f}, {1.0f, 0.75f, 0.80f}, {0.80f, 0.65f}},
-      {{-1.0f,  1.0f, -1.0f}, {1.0f, 0.75f, 0.80f}, {0.20f, 0.65f}},
-
-      // Sisi Kanan (Right face)
-      {{ 0.0f, -1.0f,  0.0f}, {0.90f, 0.60f, 0.68f}, {0.50f, 0.05f}},
-      {{ 1.0f,  1.0f,  1.0f}, {0.90f, 0.60f, 0.68f}, {0.80f, 0.65f}},
-      {{ 1.0f,  1.0f, -1.0f}, {0.90f, 0.60f, 0.68f}, {0.20f, 0.65f}},
-
-      // Sisi Belakang (Back face)
-      {{ 0.0f, -1.0f,  0.0f}, {0.82f, 0.50f, 0.58f}, {0.50f, 0.05f}},
-      {{-1.0f,  1.0f,  1.0f}, {0.82f, 0.50f, 0.58f}, {0.80f, 0.65f}},
-      {{ 1.0f,  1.0f,  1.0f}, {0.82f, 0.50f, 0.58f}, {0.20f, 0.65f}},
-
-      // Sisi Kiri (Left face)
-      {{ 0.0f, -1.0f,  0.0f}, {0.85f, 0.55f, 0.63f}, {0.50f, 0.05f}},
-      {{-1.0f,  1.0f, -1.0f}, {0.85f, 0.55f, 0.63f}, {0.80f, 0.65f}},
-      {{-1.0f,  1.0f,  1.0f}, {0.85f, 0.55f, 0.63f}, {0.20f, 0.65f}},
-
-      // Alas Bawah - segitiga 1 (Bottom base tri 1)
-      {{-1.0f,  1.0f, -1.0f}, {0.75f, 0.42f, 0.50f}, {0.20f, 0.20f}},
-      {{ 1.0f,  1.0f, -1.0f}, {0.75f, 0.42f, 0.50f}, {0.80f, 0.20f}},
-      {{ 1.0f,  1.0f,  1.0f}, {0.75f, 0.42f, 0.50f}, {0.80f, 0.65f}},
-
-      // Alas Bawah - segitiga 2 (Bottom base tri 2)
-      {{-1.0f,  1.0f, -1.0f}, {0.75f, 0.42f, 0.50f}, {0.20f, 0.20f}},
-      {{ 1.0f,  1.0f,  1.0f}, {0.75f, 0.42f, 0.50f}, {0.80f, 0.65f}},
-      {{-1.0f,  1.0f,  1.0f}, {0.75f, 0.42f, 0.50f}, {0.20f, 0.65f}},
-  };
-  VkDeviceSize size = sizeof(verts);
+  auto verts = GeometryController::generatePolygon(m_polygonSides, 1.0f);
+  m_vertexCount = static_cast<uint32_t>(verts.size());
+  VkDeviceSize size = verts.size() * sizeof(Vertex);
 
   VkBufferCreateInfo bi{};
   bi.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -588,7 +629,7 @@ bool VulkanRenderer::createVertexBuffer() {
 
   void *data;
   vkMapMemory(m_dev, m_vertMem, 0, size, 0, &data);
-  std::memcpy(data, verts, size);
+  std::memcpy(data, verts.data(), size);
   vkUnmapMemory(m_dev, m_vertMem);
   return true;
 }
@@ -647,15 +688,14 @@ bool VulkanRenderer::createTextureImage() {
         "res/wowo_pencinta_sawit.png",
     };
 
-    auto candIt = std::find_if(
-        std::begin(candidates), std::end(candidates), [](const char *c) {
-          if (FILE *f = std::fopen(c, "rb")) {
-            std::fclose(f);
-            return true;
-          }
-          return false;
-        }
-    );
+    auto candIt = std::find_if(std::begin(candidates), std::end(candidates),
+                               [](const char *c) {
+                                 if (FILE *f = std::fopen(c, "rb")) {
+                                   std::fclose(f);
+                                   return true;
+                                 }
+                                 return false;
+                               });
     if (candIt != std::end(candidates)) {
       path = *candIt;
     }
@@ -873,6 +913,13 @@ void VulkanRenderer::destroySwapchain() {
   m_swapViews.clear();
   m_swapImages.clear();
 
+  if (m_depthImageView) vkDestroyImageView(m_dev, m_depthImageView, nullptr);
+  if (m_depthImage) vkDestroyImage(m_dev, m_depthImage, nullptr);
+  if (m_depthImageMem) vkFreeMemory(m_dev, m_depthImageMem, nullptr);
+  m_depthImageView = VK_NULL_HANDLE;
+  m_depthImage = VK_NULL_HANDLE;
+  m_depthImageMem = VK_NULL_HANDLE;
+
   if (m_swapchain) {
     vkDestroySwapchainKHR(m_dev, m_swapchain, nullptr);
     m_swapchain = VK_NULL_HANDLE;
@@ -884,7 +931,7 @@ void VulkanRenderer::destroySwapchain() {
 // ===========================================================================
 bool VulkanRenderer::recreateSwapchain() {
   destroySwapchain();
-  return createSwapchain() && createFramebuffers() && createCommandBuffers();
+  return createSwapchain() && createDepthResources() && createFramebuffers() && createCommandBuffers();
 }
 
 // ===========================================================================
@@ -894,25 +941,71 @@ bool VulkanRenderer::draw() {
   // --- Handle Window Resize (mencegah gambar gepeng) ---
   int w = 0, h = 0;
   m_window->getFramebufferSize(w, h);
-  if (w == 0 || h == 0) return true; // minimized
+  if (w == 0 || h == 0)
+    return true; // minimized
 
-  if (static_cast<uint32_t>(w) != m_swapExtent.width || 
+  if (static_cast<uint32_t>(w) != m_swapExtent.width ||
       static_cast<uint32_t>(h) != m_swapExtent.height) {
-    if (!recreateSwapchain()) return false;
+    if (!recreateSwapchain())
+      return false;
   }
 
   // --- update sudut rotasi berdasarkan waktu nyata (time-based animation) ---
   static auto startTime = std::chrono::high_resolution_clock::now();
   auto currentTime = std::chrono::high_resolution_clock::now();
-  float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
-  
-  // Kecepatan putaran diatur melalui argumen CLI --speed
+  float time = std::chrono::duration<float, std::chrono::seconds::period>(
+                   currentTime - startTime)
+                   .count();
+
+  // Kecepatan putaran otomatis
   m_angle = time * m_rotationSpeed;
+
+  // --- Siapkan ImGui Frame Baru ---
+  // Memanggil NewFrame di awal sangat penting agar state input (seperti io.MouseWheel)
+  // diperbarui untuk frame ini sebelum kita membacanya.
+  ImGui_ImplVulkan_NewFrame();
+  ImGui_ImplWin32_NewFrame();
+  ImGui::NewFrame();
+
+  // --- Input Mouse (Middle Click Drag untuk Rotasi) ---
+  ImGuiIO &io = ImGui::GetIO();
+  if (io.MouseDown[2]) { // 2 = Middle Mouse Button
+    m_rotY -= io.MouseDelta.x * 0.01f; // Drag horizontal -> putar di sumbu Y (Yaw)
+    m_rotX += io.MouseDelta.y * 0.01f; // Drag vertikal (Inverted/Terbalik)
+  }
+
+  // Batasi (clamp) rotasi vertikal (Pitch) agar tidak flip terbalik (Maksimal +/- ~85 derajat)
+  // Ini penting agar perputaran arah Yaw tidak terasa terbalik (inverted) saat melewati kutub
+  const float PITCH_LIMIT = 1.5f; 
+  if (m_rotX > PITCH_LIMIT) m_rotX = PITCH_LIMIT;
+  if (m_rotX < -PITCH_LIMIT) m_rotX = -PITCH_LIMIT;
+
+  // --- Input Mouse (Scroll Wheel untuk Zoom) ---
+  // Menggunakan roda mouse (Scroll Wheel) untuk mendekatkan/menjauhkan kamera (translasi sumbu Z).
+  // - Jika Scroll ke depan (io.MouseWheel > 0) -> Jarak berkurang -> Zoom In
+  // - Jika Scroll ke belakang (io.MouseWheel < 0) -> Jarak bertambah -> Zoom Out
+  if (io.MouseWheel != 0.0f) {
+    m_cameraDistance -= io.MouseWheel * 0.5f; // Pengali 0.5 adalah kecepatan/sensitivitas zoom
+    
+    // Batasi (clamp) jarak kamera agar tidak tembus ke dalam jeroan objek, maupun terbang terlalu jauh
+    if (m_cameraDistance < 1.5f) m_cameraDistance = 1.5f;   // Batas maksimal Zoom In
+    if (m_cameraDistance > 20.0f) m_cameraDistance = 20.0f; // Batas maksimal Zoom Out
+  }
 
   // --- hitung matriks MVP ---
   float aspect = (float)m_swapExtent.width / (float)m_swapExtent.height;
-  Mat4 proj = Mat4::perspective(1.0472f, aspect, 0.1f, 10.0f); // ~60°
-  Mat4 model = Mat4::translation(0.0f, 0.0f, 3.5f) * Mat4::rotationY(m_angle);
+  
+  // Proyeksi Kamera (Field of View ~60 derajat, Near Clip 0.1, Far Clip ditingkatkan ke 50.0 agar objek tidak terpotong saat di-zoom out jauh)
+  Mat4 proj = Mat4::perspective(1.0472f, aspect, 0.1f, 50.0f); 
+  
+  // Kombinasi matriks model:
+  // 1. Mat4::translation -> Memposisikan objek sejauh m_cameraDistance dari layar
+  // 2. Mat4::rotationX   -> Rotasi Pitch (dari drag vertical)
+  // 3. Mat4::rotationY   -> Rotasi Yaw (gabungan drag horizontal + rotasi otomatis)
+  Mat4 model = Mat4::translation(0.0f, 0.0f, m_cameraDistance) * 
+               Mat4::rotationX(m_rotX) * 
+               Mat4::rotationY(m_rotY + m_angle);
+               
   Mat4 mvp = proj * model;       // P * M (standard column-vector)
   Mat4 upload = mvp.transpose(); // transpose untuk row_major HLSL
 
@@ -936,12 +1029,15 @@ bool VulkanRenderer::draw() {
   if (r == VK_ERROR_OUT_OF_DATE_KHR) {
     if (!recreateSwapchain()) {
       std::printf("WARN: swapchain recreate failed (minimised?)\n");
+      ImGui::EndFrame(); // <--- HARUS ADA jika NewFrame sudah dipanggil
       return true;
     }
+    ImGui::EndFrame(); // <--- HARUS ADA jika NewFrame sudah dipanggil
     return true;
   }
   if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) {
     std::printf("WARN: vkAcquireNextImageKHR = %d\n", r);
+    ImGui::EndFrame(); // <--- HARUS ADA
     return false;
   }
 
@@ -953,18 +1049,21 @@ bool VulkanRenderer::draw() {
   cbi.flags = 0;
   vkBeginCommandBuffer(m_cmdBufs[idx], &cbi);
 
-  VkClearValue clear{{{0.0f, 0.0f, 0.0f, 1.0f}}};
+  VkClearValue clearValues[2]{};
+  clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+  clearValues[1].depthStencil = {1.0f, 0};
 
   VkRenderPassBeginInfo rp{};
   rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
   rp.renderPass = m_renderPass;
   rp.framebuffer = m_framebufs[idx];
   rp.renderArea = {{0, 0}, m_swapExtent};
-  rp.clearValueCount = 1;
-  rp.pClearValues = &clear;
+  rp.clearValueCount = 2;
+  rp.pClearValues = clearValues;
   vkCmdBeginRenderPass(m_cmdBufs[idx], &rp, VK_SUBPASS_CONTENTS_INLINE);
 
-  vkCmdBindPipeline(m_cmdBufs[idx], VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
+  vkCmdBindPipeline(m_cmdBufs[idx], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_pipeline);
 
   VkViewport viewport{};
   viewport.width = (float)m_swapExtent.width;
@@ -983,20 +1082,79 @@ bool VulkanRenderer::draw() {
   vkCmdBindDescriptorSets(m_cmdBufs[idx], VK_PIPELINE_BIND_POINT_GRAPHICS,
                           m_pipeLayout, 0, 1, &m_descSet, 0, nullptr);
 
-  vkCmdDraw(m_cmdBufs[idx], 18, 1, 0, 0);
+  vkCmdDraw(m_cmdBufs[idx], m_vertexCount, 1, 0, 0);
 
   // --- Render ImGui ---
-  ImGui_ImplVulkan_NewFrame();
-  ImGui_ImplWin32_NewFrame();
-  ImGui::NewFrame();
+  // (NewFrame sudah dipanggil di awal fungsi draw())
 
   if (m_window->window_buffer.showOption) {
-      ImGui::Begin("Options", &m_window->window_buffer.showOption);
-      ImGui::Text("List of Items:");
-      for (const auto& item : m_window->window_buffer.itemList) {
-          ImGui::BulletText("%s", item.c_str());
-      }
-      ImGui::End();
+    ImGui::Begin("Options", &m_window->window_buffer.showOption);
+
+    // --- Rotation Speed Bar ---
+    ImGui::Text("Rotation Speed");
+    ImGui::SliderFloat("##speed", &m_rotationSpeed, 0.0f, 10.0f, "%.2f");
+    ImGui::Spacing();
+
+    // --- Polygon Sides Slider ---
+    ImGui::Text("Polygon Sides");
+    int prevSides = m_polygonSides;
+    ImGui::SliderInt("##sides", &m_polygonSides, 3, 36);
+    if (m_polygonSides != prevSides) {
+      rebuildVertexBuffer(m_polygonSides);
+    }
+    ImGui::Spacing();
+
+    // --- Info ---
+    const char* shapeLabel = "Polygon";
+    if (m_polygonSides == 3) shapeLabel = "Segitiga";
+    else if (m_polygonSides == 4) shapeLabel = "Segi Empat";
+    else if (m_polygonSides == 5) shapeLabel = "Pentagon";
+    else if (m_polygonSides == 6) shapeLabel = "Hexagon";
+    else if (m_polygonSides >= 32) shapeLabel = "Lingkaran";
+    ImGui::Text("Shape: %s (%d sisi)", shapeLabel, m_polygonSides);
+    ImGui::Text("Vertices: %u", m_vertexCount);
+    ImGui::Text("Edges: %d", m_polygonSides);
+
+    ImGui::End();
+  }
+
+  // Select Texture Window
+  ImGui::Begin("Select Characters");
+
+  float windowWidth = ImGui::GetContentRegionAvail().x;
+  // Calculate button width for 3 buttons, accounting for spacing
+  float spacing = ImGui::GetStyle().ItemSpacing.x;
+  float buttonWidth = (windowWidth - spacing * 2.0f) / 3.0f;
+
+  if (ImGui::Button("Prabowo", ImVec2(buttonWidth, 0))) {
+    changeTexture("../../src/res/wowo_pencinta_sawit.png");
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Gibran", ImVec2(buttonWidth, 0))) {
+    changeTexture("../../src/res/gibran.png");
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Jokowi", ImVec2(buttonWidth, 0))) {
+    changeTexture("../../src/res/jokowi.png");
+  }
+  ImGui::End();
+
+  // Score Overlay at Top-Right
+  ImGui::SetNextWindowPos(ImVec2(m_swapExtent.width - 20.0f, 20.0f),
+                          ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+  if (ImGui::Begin(
+          "ScoreOverlay", nullptr,
+          ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+              ImGuiWindowFlags_NoSavedSettings |
+              ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+              ImGuiWindowFlags_NoBackground)) {
+    if (m_scoreFont)
+      ImGui::PushFont(m_scoreFont);
+    // Orange color for score
+    ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.0f, 1.0f), "SCORE: %d", m_score);
+    if (m_scoreFont)
+      ImGui::PopFont();
+    ImGui::End();
   }
 
   ImGui::Render();
@@ -1034,6 +1192,26 @@ bool VulkanRenderer::draw() {
 
   m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
   return true;
+}
+
+// ===========================================================================
+// rebuildVertexBuffer – rebuild vertex buffer saat polygon sides berubah
+// ===========================================================================
+bool VulkanRenderer::rebuildVertexBuffer(int sides) {
+  vkDeviceWaitIdle(m_dev);
+
+  // Destroy vertex buffer lama
+  if (m_vertBuf) {
+    vkDestroyBuffer(m_dev, m_vertBuf, nullptr);
+    m_vertBuf = VK_NULL_HANDLE;
+  }
+  if (m_vertMem) {
+    vkFreeMemory(m_dev, m_vertMem, nullptr);
+    m_vertMem = VK_NULL_HANDLE;
+  }
+
+  m_polygonSides = sides;
+  return createVertexBuffer();
 }
 
 // ===========================================================================
@@ -1132,21 +1310,29 @@ bool VulkanRenderer::initImGui() {
       {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000},
       {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000},
       {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000},
-      {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000}
-  };
+      {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000}};
   VkDescriptorPoolCreateInfo pool_info = {};
   pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
   pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
   pool_info.maxSets = 1000 * IM_ARRAYSIZE(pool_sizes);
   pool_info.poolSizeCount = (uint32_t)IM_ARRAYSIZE(pool_sizes);
   pool_info.pPoolSizes = pool_sizes;
-  if (vkCreateDescriptorPool(m_dev, &pool_info, nullptr, &m_imguiPool) != VK_SUCCESS) {
-      return false;
+  if (vkCreateDescriptorPool(m_dev, &pool_info, nullptr, &m_imguiPool) !=
+      VK_SUCCESS) {
+    return false;
   }
 
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
-  ImGuiIO& io = ImGui::GetIO(); (void)io;
+  ImGuiIO &io = ImGui::GetIO();
+  (void)io;
+
+  // Load default font first so normal ImGui uses it
+  io.Fonts->AddFontDefault();
+  // Load custom font at 64px for the score specifically
+  m_scoreFont =
+      io.Fonts->AddFontFromFileTTF("../../utils/pixantiqua.ttf", 64.0f);
+
   ImGui::StyleColorsDark();
 
   ImGui_ImplWin32_Init(m_window->getHandle());
@@ -1171,12 +1357,233 @@ bool VulkanRenderer::initImGui() {
   return true;
 }
 
+void VulkanRenderer::handleMouseClick(int x, int y) {
+  int w = m_swapExtent.width;
+  int h = m_swapExtent.height;
+  if (w == 0 || h == 0)
+    return;
+
+  // Convert mouse to NDC
+  float ndcX = (2.0f * x) / w - 1.0f;
+  float ndcY = (2.0f * y) / h - 1.0f; // Vulkan Y-down
+
+  // View/Proj matrices (same as draw)
+  float aspect = (float)w / (float)h;
+  Mat4 proj = Mat4::perspective(1.0472f, aspect, 0.1f, 10.0f);
+  Mat4 model = Mat4::translation(0.0f, 0.0f, 3.5f) * Mat4::rotationY(m_angle);
+  Mat4 mvp = proj * model;
+
+  // Center is (0,0,0) in local space
+  float clipX = mvp.m[0][3];
+  float clipY = mvp.m[1][3];
+  float clipW = mvp.m[3][3];
+
+  float cx = clipX / clipW;
+  float cy = clipY / clipW;
+
+  float dx = ndcX - cx;
+  float dy = ndcY - cy;
+  float distSq = dx * dx + dy * dy;
+
+  // hit threshold ~0.2 in NDC
+  if (distSq < 0.2f) {
+    m_score++;
+    updateScoreTexture();
+  }
+}
+
+void VulkanRenderer::updateScoreTexture() {
+  if (m_texture.cpuPixels.empty() || m_texture.width == 0)
+    return;
+
+  // We will copy the original pixels, write the text, and upload it.
+  std::vector<uint8_t> buffer = m_texture.cpuPixels;
+
+  // Load raylib example font
+  FILE *f = fopen("../../utils/pixantiqua.ttf", "rb");
+  if (f) {
+    fseek(f, 0, SEEK_END);
+    size_t size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    std::vector<uint8_t> fontBuffer(size);
+    fread(fontBuffer.data(), 1, size, f);
+    fclose(f);
+
+    stbtt_fontinfo font;
+    if (stbtt_InitFont(&font, fontBuffer.data(), 0)) {
+      char text[32];
+      snprintf(text, sizeof(text), "SCORE: %d", m_score);
+
+      float scale = stbtt_ScaleForPixelHeight(&font, 64.0f);
+      int ascent, descent, lineGap;
+      stbtt_GetFontVMetrics(&font, &ascent, &descent, &lineGap);
+      ascent = (int)(ascent * scale);
+
+      int text_width = 0;
+      for (int i = 0; text[i]; ++i) {
+        int ax;
+        stbtt_GetCodepointHMetrics(&font, text[i], &ax, 0);
+        text_width += (int)(ax * scale);
+      }
+
+      int padding = 40;
+      int x_pos = m_texture.width - text_width - padding;
+      int y_pos = padding + ascent;
+
+      for (int i = 0; text[i]; ++i) {
+        int w, h, xoff, yoff;
+        unsigned char *bitmap = stbtt_GetCodepointBitmap(
+            &font, 0, scale, text[i], &w, &h, &xoff, &yoff);
+        if (bitmap) {
+          for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+              int px = x_pos + x + xoff;
+              int py = y_pos + y + yoff;
+              if (px >= 0 && px < (int)m_texture.width && py >= 0 &&
+                  py < (int)m_texture.height) {
+                int idx = (py * m_texture.width + px) * 4;
+                uint8_t alpha = bitmap[y * w + x];
+                if (alpha > 0) {
+                  // simple alpha blend (orange text)
+                  buffer[idx + 0] = 255; // R
+                  buffer[idx + 1] = 165; // G
+                  buffer[idx + 2] = 0;   // B
+                  buffer[idx + 3] = 255; // A
+                }
+              }
+            }
+          }
+          stbtt_FreeBitmap(bitmap, nullptr);
+        }
+        int ax;
+        stbtt_GetCodepointHMetrics(&font, text[i], &ax, 0);
+        x_pos += (int)(ax * scale);
+      }
+    } else {
+      std::printf("Failed to init stbtt font\n");
+    }
+  } else {
+    std::printf("ERROR: Failed to open font file ../../utils/pixantiqua.ttf\n");
+  }
+
+  // Upload to GPU
+  updateTextureSubresource(m_dev, m_physDev, m_cmdPool, m_gfxQueue, m_texture,
+                           buffer.data(), m_texture.width, m_texture.height);
+}
+
 void VulkanRenderer::cleanupImGui() {
   if (m_imguiPool) {
-      ImGui_ImplVulkan_Shutdown();
-      ImGui_ImplWin32_Shutdown();
-      ImGui::DestroyContext();
-      vkDestroyDescriptorPool(m_dev, m_imguiPool, nullptr);
-      m_imguiPool = VK_NULL_HANDLE;
+    ImGui_ImplVulkan_Shutdown();
+    ImGui_ImplWin32_Shutdown();
+    ImGui::DestroyContext();
+    vkDestroyDescriptorPool(m_dev, m_imguiPool, nullptr);
+    m_imguiPool = VK_NULL_HANDLE;
   }
+}
+
+void VulkanRenderer::changeTexture(const std::string &texturePath) {
+  vkDeviceWaitIdle(m_dev);
+
+  // Destroy old texture
+  destroyTexture(m_dev, m_texture);
+
+  // Load new texture
+  if (!loadTextureFromFile(m_dev, m_physDev, m_cmdPool, m_gfxQueue,
+                           texturePath.c_str(), m_texture)) {
+    std::printf("Failed to load new texture: %s\n", texturePath.c_str());
+    return;
+  }
+  m_texturePath = texturePath;
+
+  // Update descriptor set with new texture
+  VkDescriptorImageInfo imageInfo{};
+  imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  imageInfo.imageView = m_texture.view;
+  imageInfo.sampler = m_texture.sampler;
+
+  VkWriteDescriptorSet descriptorWrite{};
+  descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  descriptorWrite.dstSet = m_descSet;
+  descriptorWrite.dstBinding = 1;
+  descriptorWrite.dstArrayElement = 0;
+  descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  descriptorWrite.descriptorCount = 1;
+  descriptorWrite.pImageInfo = &imageInfo;
+
+  vkUpdateDescriptorSets(m_dev, 1, &descriptorWrite, 0, nullptr);
+
+  // Re-apply score text to new texture
+  updateScoreTexture();
+}
+
+// ===========================================================================
+// Depth Resources
+// ===========================================================================
+VkFormat VulkanRenderer::findDepthFormat() {
+  VkFormat candidates[] = {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT};
+  for (VkFormat format : candidates) {
+    VkFormatProperties props;
+    vkGetPhysicalDeviceFormatProperties(m_physDev, format, &props);
+    if ((props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) == VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+      return format;
+    }
+  }
+  std::printf("ERROR: Failed to find supported depth format!\n");
+  return VK_FORMAT_D32_SFLOAT;
+}
+
+bool VulkanRenderer::createDepthResources() {
+  m_depthFormat = findDepthFormat();
+
+  VkImageCreateInfo ici{};
+  ici.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  ici.imageType = VK_IMAGE_TYPE_2D;
+  ici.extent.width = m_swapExtent.width;
+  ici.extent.height = m_swapExtent.height;
+  ici.extent.depth = 1;
+  ici.mipLevels = 1;
+  ici.arrayLayers = 1;
+  ici.format = m_depthFormat;
+  ici.tiling = VK_IMAGE_TILING_OPTIMAL;
+  ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  ici.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+  ici.samples = VK_SAMPLE_COUNT_1_BIT;
+  ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+  if (vkCreateImage(m_dev, &ici, nullptr, &m_depthImage) != VK_SUCCESS) {
+    std::printf("ERROR: vkCreateImage for depth failed\n");
+    return false;
+  }
+
+  VkMemoryRequirements memRequirements;
+  vkGetImageMemoryRequirements(m_dev, m_depthImage, &memRequirements);
+
+  VkMemoryAllocateInfo allocInfo{};
+  allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  allocInfo.allocationSize = memRequirements.size;
+  allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+  if (vkAllocateMemory(m_dev, &allocInfo, nullptr, &m_depthImageMem) != VK_SUCCESS) {
+    std::printf("ERROR: vkAllocateMemory for depth failed\n");
+    return false;
+  }
+
+  vkBindImageMemory(m_dev, m_depthImage, m_depthImageMem, 0);
+
+  VkImageViewCreateInfo viewInfo{};
+  viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+  viewInfo.image = m_depthImage;
+  viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  viewInfo.format = m_depthFormat;
+  viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+  viewInfo.subresourceRange.baseMipLevel = 0;
+  viewInfo.subresourceRange.levelCount = 1;
+  viewInfo.subresourceRange.baseArrayLayer = 0;
+  viewInfo.subresourceRange.layerCount = 1;
+
+  if (vkCreateImageView(m_dev, &viewInfo, nullptr, &m_depthImageView) != VK_SUCCESS) {
+    std::printf("ERROR: vkCreateImageView for depth failed\n");
+    return false;
+  }
+  return true;
 }

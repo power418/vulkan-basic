@@ -29,7 +29,7 @@ public:
 
     void setRenderCallback(std::function<void()> cb) override { m_renderCallback = cb; }
     void setMouseMoveCallback(std::function<void(int x, int y)> cb) override { m_mouseMoveCallback = cb; }
-    void setMouseClickCallback(std::function<void()> cb) override { m_mouseClickCallback = cb; }
+    void setMouseClickCallback(std::function<void(int x, int y)> cb) override { m_mouseClickCallback = cb; }
     void setCursorToHand(bool isHand) override;
 
     bool isCloseRequested() const { return m_shouldClose; }
@@ -48,7 +48,7 @@ private:
 
     std::function<void()> m_renderCallback;
     std::function<void(int x, int y)> m_mouseMoveCallback;
-    std::function<void()> m_mouseClickCallback;
+    std::function<void(int x, int y)> m_mouseClickCallback;
 
     // WinRT UISettings – must stay alive for ColorValuesChanged to fire
     winrt::Windows::UI::ViewManagement::UISettings m_uiSettings{nullptr};

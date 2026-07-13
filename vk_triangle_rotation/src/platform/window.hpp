@@ -40,7 +40,7 @@ public:
 
     // Mouse input
     virtual void setMouseMoveCallback(std::function<void(int x, int y)> cb) {}
-    virtual void setMouseClickCallback(std::function<void()> cb) {}
+    virtual void setMouseClickCallback(std::function<void(int x, int y)> cb) {}
 
     // Kursor
     virtual void setCursorToHand(bool isHand) {}
