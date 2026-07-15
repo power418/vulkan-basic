@@ -1,0 +1,5 @@
+CompileFlags:
+  CompilationDatabase: build
+  Add:
+    - "-IC:/Users/Administrator/scoop/apps/vcpkg/current/installed/x64-windows/include"
+    - "-IC:/Users/Administrator/scoop/apps/vcpkg/current/installed/x64-windows/include/GLFW"
