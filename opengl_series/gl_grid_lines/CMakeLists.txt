@@ -14,6 +14,7 @@ find_package(imgui CONFIG REQUIRED)
 
 set(SOURCE_FILES
     src/main.cpp
+    src/mesh.cpp
     utils/geometry.cpp
 )
 

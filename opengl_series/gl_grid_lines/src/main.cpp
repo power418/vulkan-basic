@@ -15,6 +15,7 @@
 #include "../utils/infinity_grid.h"
 #include "../utils/viewport3d.h"
 #include "../utils/device.h"
+#include "mesh.h"
 
 // ========================================================================
 // GLOBAL STATE & RENDER HELPERS
@@ -25,6 +26,7 @@ bool g_is_raycast_hit = false;
 Vec3 g_hit_pos;
 float g_hit_distance = 0.0f;
 std::vector<Vec3> freeDrawPoints3D;
+bool g_render_native_3d = false;
 
 void DrawLineGL(Vec3 a, Vec3 b, ImU32 color, float thickness = 2.0f) {
     float r = ((color >> 0)  & 0xFF) / 255.0f;
@@ -148,41 +150,43 @@ int RunImGuiApp(const char* window_title, AppCallback app_logic) {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         // --- NATIVE OPENGL 3D RENDERING ---
-        glEnable(GL_DEPTH_TEST);
-        g_viewport.SetupOpenGLMatrices((float)display_w, (float)display_h);
+        if (g_render_native_3d) {
+            glEnable(GL_DEPTH_TEST);
+            g_viewport.SetupOpenGLMatrices((float)display_w, (float)display_h);
 
-        // 1. Gambar Lantai Grid Infinite
-        float step = 5.0f;
-        float view_distance = 200.0f;
-        float center_x = std::floor(g_viewport.camera.pos.x / step) * step;
-        float center_z = std::floor(g_viewport.camera.pos.z / step) * step;
-        
-        for (float x = center_x - view_distance; x <= center_x + view_distance; x += step) {
-            ImU32 col = (std::abs(x) < 0.1f) ? IM_COL32(100, 255, 100, 200) : IM_COL32(150, 150, 150, 60);
-            DrawLineGL({x, 0.0f, center_z - view_distance}, {x, 0.0f, center_z + view_distance}, col, 1.0f);
-        }
-        for (float z = center_z - view_distance; z <= center_z + view_distance; z += step) {
-            ImU32 col = (std::abs(z) < 0.1f) ? IM_COL32(255, 100, 100, 200) : IM_COL32(150, 150, 150, 60);
-            DrawLineGL({center_x - view_distance, 0.0f, z}, {center_x + view_distance, 0.0f, z}, col, 1.0f);
-        }
-
-        // 2. Gambar Jalur Garis Bebas 3D (Cubes and Lines)
-        if (freeDrawPoints3D.size() >= 2) {
-            for (size_t i = 0; i < freeDrawPoints3D.size() - 1; ++i) {
-                DrawLineGL(freeDrawPoints3D[i], freeDrawPoints3D[i+1], IM_COL32(0, 255, 255, 255), 3.0f);
+            // 1. Gambar Lantai Grid Infinite
+            float step = 5.0f;
+            float view_distance = 200.0f;
+            float center_x = std::floor(g_viewport.camera.pos.x / step) * step;
+            float center_z = std::floor(g_viewport.camera.pos.z / step) * step;
+            
+            for (float x = center_x - view_distance; x <= center_x + view_distance; x += step) {
+                ImU32 col = (std::abs(x) < 0.1f) ? IM_COL32(100, 255, 100, 200) : IM_COL32(150, 150, 150, 60);
+                DrawLineGL({x, 0.0f, center_z - view_distance}, {x, 0.0f, center_z + view_distance}, col, 1.0f);
             }
-        }
-        for (const auto& pt : freeDrawPoints3D) {
-            DrawCubeGL(pt, 0.5f, IM_COL32(255, 255, 0, 255)); // Render sbg Kubus 3D
-        }
+            for (float z = center_z - view_distance; z <= center_z + view_distance; z += step) {
+                ImU32 col = (std::abs(z) < 0.1f) ? IM_COL32(255, 100, 100, 200) : IM_COL32(150, 150, 150, 60);
+                DrawLineGL({center_x - view_distance, 0.0f, z}, {center_x + view_distance, 0.0f, z}, col, 1.0f);
+            }
 
-        // 3. Gambar Cursor/Pilar Raycast saat ini (jika menyentuh lantai)
-        if (g_is_raycast_hit) {
-            DrawLineGL(g_hit_pos, {g_hit_pos.x, g_hit_pos.y + 5.0f, g_hit_pos.z}, IM_COL32(255, 50, 50, 255), 3.0f);
-            DrawCubeGL(g_hit_pos, 0.8f, IM_COL32(255, 50, 50, 255));
-        }
+            // 2. Gambar Jalur Garis Bebas 3D (Cubes and Lines)
+            if (freeDrawPoints3D.size() >= 2) {
+                for (size_t i = 0; i < freeDrawPoints3D.size() - 1; ++i) {
+                    DrawLineGL(freeDrawPoints3D[i], freeDrawPoints3D[i+1], IM_COL32(0, 255, 255, 255), 3.0f);
+                }
+            }
+            for (const auto& pt : freeDrawPoints3D) {
+                DrawCubeGL(pt, 0.5f, IM_COL32(255, 255, 0, 255)); // Render sbg Kubus 3D
+            }
 
-        glDisable(GL_DEPTH_TEST);
+            // 3. Gambar Cursor/Pilar Raycast saat ini (jika menyentuh lantai)
+            if (g_is_raycast_hit) {
+                DrawLineGL(g_hit_pos, {g_hit_pos.x, g_hit_pos.y + 5.0f, g_hit_pos.z}, IM_COL32(255, 50, 50, 255), 3.0f);
+                DrawCubeGL(g_hit_pos, 0.8f, IM_COL32(255, 50, 50, 255));
+            }
+
+            glDisable(GL_DEPTH_TEST);
+        }
         // --- SELESAI NATIVE OPENGL ---
 
         // ImGui di atas segalanya (UI layer)
@@ -210,6 +214,7 @@ struct {
 std::vector<Point2D> points2D;
 
 void ShowConvexHull2DApp(ImGuiIO& io, GLFWwindow* window) {
+    g_render_native_3d = false;
     ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
     ImGui::SetNextWindowSize(io.DisplaySize, ImGuiCond_Always);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -240,6 +245,9 @@ void ShowConvexHull2DApp(ImGuiIO& io, GLFWwindow* window) {
         }
     }
 
+    // [Geometry & Algebra] Infinite Grid Rendering menggunakan fungsi Modulo
+    // fmodf(pan, grid_step) membatasi pergeseran layar tetap dalam rentang 1 kotak grid.
+    // Ini menciptakan ilusi grid 2D yang tak terbatas (infinite) saat kamera digeser (panning).
     float grid_step = 50.0f * state2D.zoom;
     if (grid_step > 5.0f) {
         for (float x = fmodf(state2D.panX, grid_step); x < sz.x; x += grid_step)
@@ -252,17 +260,71 @@ void ShowConvexHull2DApp(ImGuiIO& io, GLFWwindow* window) {
     draw_list->AddLine(ImVec2(origin.x, p0.y), ImVec2(origin.x, p1.y), IM_COL32(255, 100, 100, 150), 2.0f);
     draw_list->AddLine(ImVec2(p0.x, origin.y), ImVec2(p1.x, origin.y), IM_COL32(100, 255, 100, 150), 2.0f);
 
+    // [Linear Algebra] Affine Transformation (Transformasi Ruang/Basis)
+    // Mengubah koordinat Dunia (World Space) ke koordinat Layar (Screen Space).
+    // Operasi matematikanya: Screen_X = Origin_X + (World_X * Scale) + Translation_X
     auto WorldToScreen = [&](const Point2D& p) -> ImVec2 {
         return ImVec2(p0.x + sz.x * 0.5f + state2D.panX + p.x * state2D.zoom,
                       p0.y + sz.y * 0.5f + state2D.panY + p.y * state2D.zoom);
     };
 
+    // [Computational Geometry] Convex Hull
+    // Membungkus seluruh himpunan titik 2D dengan poligon cembung terkecil.
+    // Perhitungannya biasa menggunakan dot product/cross product (seperti Graham Scan atau Monotone Chain) 
+    // untuk memastikan setiap belokan sudut terluar tidak pernah membentuk sudut cekung.
     std::vector<Point2D> hull = ComputeConvexHull(points2D);
     if (hull.size() > 1) {
         for (size_t i = 0; i < hull.size(); ++i) {
             ImVec2 sp1 = WorldToScreen(hull[i]);
             ImVec2 sp2 = WorldToScreen(hull[(i + 1) % hull.size()]);
             draw_list->AddLine(sp1, sp2, IM_COL32(50, 255, 255, 255), 3.0f);
+        }
+    }
+
+    static float mesh_opacity = 0.5f;
+    if (hull.size() >= 3) {
+        Mesh2D mesh;
+        mesh.setOpacity(mesh_opacity);
+        std::vector<unsigned int> all_v_indices;
+        for (const auto& p : points2D) {
+            all_v_indices.push_back(mesh.addVertex(p.x, p.y));
+        }
+
+        std::vector<unsigned int> hull_indices;
+        for (const auto& hp : hull) {
+            for (size_t i = 0; i < points2D.size(); ++i) {
+                if (points2D[i] == hp) {
+                    hull_indices.push_back(static_cast<unsigned int>(i));
+                    break;
+                }
+            }
+        }
+
+        // Buat boundary otomatis (Triangulasi Ear Clipping)
+        for (size_t i = 0; i < hull_indices.size(); ++i) {
+            mesh.addEdge(hull_indices[i], hull_indices[(i + 1) % hull_indices.size()]);
+        }
+        
+        // Masukkan titik-titik interior yang ada di dalam bidang agar jaringnya tersambung (Delaunay-like split)
+        for (size_t i = 0; i < points2D.size(); ++i) {
+            bool is_hull = false;
+            for (auto hi : hull_indices) {
+                if (hi == i) { is_hull = true; break; }
+            }
+            if (!is_hull) {
+                mesh.insertInteriorPoint(static_cast<unsigned int>(i));
+            }
+        }
+        
+        // Draw Faces
+        const auto& verts = mesh.getVertices();
+        for (const auto& face : mesh.getFaces()) {
+            ImVec2 p1 = WorldToScreen({verts[face.v1].x, verts[face.v1].y});
+            ImVec2 p2 = WorldToScreen({verts[face.v2].x, verts[face.v2].y});
+            ImVec2 p3 = WorldToScreen({verts[face.v3].x, verts[face.v3].y});
+            
+            draw_list->AddTriangleFilled(p1, p2, p3, IM_COL32(0, 255, 100, (int)(mesh.getOpacity() * 255.0f)));
+            draw_list->AddTriangle(p1, p2, p3, IM_COL32(0, 200, 50, (int)(mesh.getOpacity() * 255.0f)), 1.0f); // Wireframe internal
         }
     }
 
@@ -278,6 +340,9 @@ void ShowConvexHull2DApp(ImGuiIO& io, GLFWwindow* window) {
     ImGui::Text("Total Titik Input: %d", (int)points2D.size());
     ImGui::Text("Sisi Convex Hull: %d", (int)hull.size());
     if (ImGui::Button("Hapus Semua Titik", ImVec2(-1, 0))) points2D.clear();
+    
+    ImGui::Spacing();
+    ImGui::SliderFloat("Opacity Bidang", &mesh_opacity, 0.0f, 1.0f);
 
     ImGui::Spacing();
     ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Kontrol Canvas:");
@@ -290,9 +355,8 @@ void ShowConvexHull2DApp(ImGuiIO& io, GLFWwindow* window) {
 // ========================================================================
 // 3D FREE DRAW APP (FUNGSI GAMBAR BEBAS SEPERTI 2D)
 // ========================================================================
-
-
 void ShowFreeDraw3DApp(ImGuiIO& io, GLFWwindow* window) {
+    g_render_native_3d = true;
     g_viewport.BeginRender("Canvas3D Free Draw", io);
 
     g_is_raycast_hit = g_viewport.RaycastToGround(g_hit_pos, false);
@@ -344,5 +408,5 @@ int main(int argc, char** argv) {
     (void)argv;
 
     // Ganti menjadi ShowFreeDraw3DApp untuk menggambar jalur garis bebas 3D
-    return RunImGuiApp("3D Free Draw App", ShowFreeDraw3DApp);
+    return RunImGuiApp("3D Free Draw App", ShowConvexHull2DApp);
 }
