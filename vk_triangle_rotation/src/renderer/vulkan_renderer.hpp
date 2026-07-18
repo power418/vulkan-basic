@@ -25,6 +25,8 @@ public:
     void handleMouseClick(int x, int y) override;
 
     void changeTexture(const std::string& texturePath);
+    void setCharacterAudioCallback(std::function<void(const std::string&)> callback) override;
+    void setBgmMuteCallback(std::function<void(bool)> callback) override;
 
 private:
     void updateScoreTexture();
@@ -40,6 +42,9 @@ private:
 
     std::string m_vertPath, m_fragPath;
     std::string m_texturePath;
+    std::function<void(const std::string&)> m_characterAudioCallback;
+    std::function<void(bool)> m_bgmMuteCallback;
+    bool m_bgmMuted = false;
 
     // -- Vulkan handles ------------------------------------------------------
     VkInstance       m_instance       = VK_NULL_HANDLE;

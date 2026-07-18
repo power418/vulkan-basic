@@ -2,6 +2,7 @@
 #include <memory>
 #include <atomic>
 #include <mutex>
+#include <string>
 #include <vector>
 
 #include "audio/audio.hpp"
@@ -19,6 +20,24 @@ public:
     void run();
 
 private:
+    struct SoundBuffer {
+        std::string filename;
+        std::vector<float> frames;
+        int sampleRate = 48000;
+        int channels = 2;
+    };
+
+    struct ActiveSound {
+        size_t soundIndex = 0;
+        size_t playhead = 0;
+    };
+
+    struct BgmMuteNode {
+        bool muted = false;
+        BgmMuteNode* prev = nullptr;
+        BgmMuteNode* next = nullptr;
+    };
+
     const Args&                m_args;
     std::unique_ptr<Window>   m_window;
     std::unique_ptr<Renderer> m_renderer;
@@ -28,11 +47,15 @@ private:
     std::vector<float> m_bgmFrames;
     int m_bgmSampleRate = 48000;
     int m_bgmChannels = 2;
+    BgmMuteNode m_bgmEnabledNode;
+    BgmMuteNode m_bgmMutedNode;
+    BgmMuteNode* m_bgmMuteState = nullptr;
 
     // SFX data
-    std::vector<float> m_sfxFrames;
+    std::vector<SoundBuffer> m_sfxSounds;
+    size_t m_focusedSoundIndex = 0;
     
     // Polyphony Tracker
     std::mutex m_sfxMutex;
-    std::vector<size_t> m_sfxPlayheads;
+    std::vector<ActiveSound> m_activeSounds;
 };

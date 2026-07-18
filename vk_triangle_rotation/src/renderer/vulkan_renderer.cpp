@@ -6,29 +6,33 @@
 #include "../shader_compiler.hpp"
 #include "vulkan_texture.hpp"
 
+#include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>
 #include <backends/imgui_impl_win32.h>
-#include <imgui.h>
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "../../utils/stb_truetype.h"
 
-#include <algorithm>
-#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-
+#include <algorithm>
+#include <chrono>
 #include <set>
+#include <utility>
 
 // Resolve a filename relative to the executable's directory.
-static std::string getExeRelativePath(const char* filename) {
-    char buf[MAX_PATH];
-    DWORD len = GetModuleFileNameA(NULL, buf, MAX_PATH);
-    if (len == 0 || len >= MAX_PATH) return filename;
-    char* sep = strrchr(buf, '\\');
-    if (sep) *(sep + 1) = '\0'; else buf[0] = '\0';
-    return std::string(buf) + filename;
+static std::string getExeRelativePath(const char *filename) {
+  char buf[MAX_PATH];
+  DWORD len = GetModuleFileNameA(NULL, buf, MAX_PATH);
+  if (len == 0 || len >= MAX_PATH)
+    return filename;
+  char *sep = strrchr(buf, '\\');
+  if (sep)
+    *(sep + 1) = '\0';
+  else
+    buf[0] = '\0';
+  return std::string(buf) + filename;
 }
 
 // ===========================================================================
@@ -326,9 +330,12 @@ bool VulkanRenderer::createRenderPass() {
   VkSubpassDependency dep{};
   dep.srcSubpass = VK_SUBPASS_EXTERNAL;
   dep.dstSubpass = 0;
-  dep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-  dep.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-  dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+  dep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                     VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+  dep.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                     VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+  dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                      VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
   VkAttachmentDescription attachments[2] = {att, depthAtt};
 
@@ -440,23 +447,25 @@ bool VulkanRenderer::createPipeline() {
 
   // ===========================================================================
   // 1. VERTEX INPUT STATE (Pipeline Vertex Input)
-  // Filosofi Vulkan: Berbeda dengan OpenGL yang menyimpan state di dalam VAO (Vertex Array Object), 
-  // Vulkan mewajibkan kita mendeklarasikan format vertex (layout memori) ke dalam Pipeline secara statis/di awal.
-  // Secara harfiah: `vi` (Vertex Input) mengikat deskripsi "bentuk" data vertex kita 
-  // (seperti berapa ukurannya/stride, dan tipe datanya seperti float3) kepada shader.
+  // Filosofi Vulkan: Berbeda dengan OpenGL yang menyimpan state di dalam VAO
+  // (Vertex Array Object), Vulkan mewajibkan kita mendeklarasikan format vertex
+  // (layout memori) ke dalam Pipeline secara statis/di awal. Secara harfiah:
+  // `vi` (Vertex Input) mengikat deskripsi "bentuk" data vertex kita (seperti
+  // berapa ukurannya/stride, dan tipe datanya seperti float3) kepada shader.
   // ===========================================================================
   VkPipelineVertexInputStateCreateInfo vi{};
   vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
   vi.vertexBindingDescriptionCount = 1;
   vi.pVertexBindingDescriptions = &bind; // Menjelaskan ukuran 1 Vertex (stride)
   vi.vertexAttributeDescriptionCount = 3;
-  vi.pVertexAttributeDescriptions = attr; // Menjelaskan isi di dalam Vertex (Posisi, Warna, UV)
+  vi.pVertexAttributeDescriptions =
+      attr; // Menjelaskan isi di dalam Vertex (Posisi, Warna, UV)
 
   // ===========================================================================
   // 2. INPUT ASSEMBLY STATE
-  // Filosofi Vulkan: Menentukan bagaimana GPU merakit kumpulan titik (vertex) tunggal 
-  // menjadi bentuk primitif geometri. 
-  // Secara harfiah: VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST (Macro) berarti setiap 3 titik (vertex) 
+  // Filosofi Vulkan: Menentukan bagaimana GPU merakit kumpulan titik (vertex)
+  // tunggal menjadi bentuk primitif geometri. Secara harfiah:
+  // VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST (Macro) berarti setiap 3 titik (vertex)
   // akan membentuk 1 segitiga yang saling lepas/independen.
   // ===========================================================================
   VkPipelineInputAssemblyStateCreateInfo ia{};
@@ -465,11 +474,12 @@ bool VulkanRenderer::createPipeline() {
 
   // ===========================================================================
   // 3. VIEWPORT & SCISSOR STATE
-  // Filosofi Vulkan: Vulkan memisahkan konsep Viewport (transformasi ukuran layar/resolusi) 
-  // dan Scissor (pemotongan/clipping area piksel).
-  // Secara harfiah: Kita membiarkannya `nullptr` karena kita menggunakan "Dynamic State".
-  // Artinya kita bisa mengubah resolusi kapan saja saat me-record Command Buffer 
-  // tanpa harus menghancurkan dan membuat ulang seluruh Pipeline ini.
+  // Filosofi Vulkan: Vulkan memisahkan konsep Viewport (transformasi ukuran
+  // layar/resolusi) dan Scissor (pemotongan/clipping area piksel). Secara
+  // harfiah: Kita membiarkannya `nullptr` karena kita menggunakan "Dynamic
+  // State". Artinya kita bisa mengubah resolusi kapan saja saat me-record
+  // Command Buffer tanpa harus menghancurkan dan membuat ulang seluruh Pipeline
+  // ini.
   // ===========================================================================
   VkPipelineViewportStateCreateInfo vs{};
   vs.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -480,26 +490,32 @@ bool VulkanRenderer::createPipeline() {
 
   // ===========================================================================
   // 4. RASTERIZATION STATE
-  // Filosofi Vulkan: Ini adalah inti pengubah geometri 3D matematika menjadi piksel 2D.
-  // Macro yang dipakai di sini sangat berpengaruh pada performa dan hasil visual.
-  // Secara harfiah: 
-  // - VK_POLYGON_MODE_FILL: Mengisi penuh area segitiga dengan warna (bukan wireframe).
-  // - VK_CULL_MODE_NONE: Tidak membuang/menyembunyikan sisi belakang (Backface) maupun depan geometri. 
+  // Filosofi Vulkan: Ini adalah inti pengubah geometri 3D matematika menjadi
+  // piksel 2D. Macro yang dipakai di sini sangat berpengaruh pada performa dan
+  // hasil visual. Secara harfiah:
+  // - VK_POLYGON_MODE_FILL: Mengisi penuh area segitiga dengan warna (bukan
+  // wireframe).
+  // - VK_CULL_MODE_NONE: Tidak membuang/menyembunyikan sisi belakang (Backface)
+  // maupun depan geometri.
   //   Penting untuk objek yang bisa dilihat dari segala arah secara bebas.
-  // - VK_FRONT_FACE_CLOCKWISE: Mendefinisikan bahwa vertex yang diurutkan searah jarum jam (Clockwise) adalah sisi depan.
+  // - VK_FRONT_FACE_CLOCKWISE: Mendefinisikan bahwa vertex yang diurutkan
+  // searah jarum jam (Clockwise) adalah sisi depan.
   // ===========================================================================
   VkPipelineRasterizationStateCreateInfo rs{};
   rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
   rs.polygonMode = VK_POLYGON_MODE_FILL;
-  rs.cullMode = VK_CULL_MODE_NONE; // Matikan Culling agar mesh terlihat menyeluruh saat dirotasi ekstrim
+  rs.cullMode = VK_CULL_MODE_NONE; // Matikan Culling agar mesh terlihat
+                                   // menyeluruh saat dirotasi ekstrim
   rs.frontFace = VK_FRONT_FACE_CLOCKWISE;
-  rs.lineWidth = 1.0f; // Tebal garis jika menggunakan polygonMode = LINE (Wireframe)
+  rs.lineWidth =
+      1.0f; // Tebal garis jika menggunakan polygonMode = LINE (Wireframe)
 
   // ===========================================================================
   // 5. MULTISAMPLE STATE (Anti-Aliasing)
-  // Filosofi Vulkan: Konfigurasi untuk menghaluskan pinggiran objek (Edge Smoothing / MSAA).
-  // Secara harfiah: VK_SAMPLE_COUNT_1_BIT berarti kita menonaktifkan MSAA (1 sample per pixel).
-  // Ini paling ringan untuk performa, cocok untuk rendering pixel-art / retro murni.
+  // Filosofi Vulkan: Konfigurasi untuk menghaluskan pinggiran objek (Edge
+  // Smoothing / MSAA). Secara harfiah: VK_SAMPLE_COUNT_1_BIT berarti kita
+  // menonaktifkan MSAA (1 sample per pixel). Ini paling ringan untuk performa,
+  // cocok untuk rendering pixel-art / retro murni.
   // ===========================================================================
   VkPipelineMultisampleStateCreateInfo ms{};
   ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -507,11 +523,12 @@ bool VulkanRenderer::createPipeline() {
 
   // ===========================================================================
   // 6. COLOR BLEND STATE
-  // Filosofi Vulkan: Setelah Fragment Shader menghitung warna piksel, Vulkan perlu tau 
-  // bagaimana cara menimpa atau mencampur (Blend) piksel baru tersebut ke layar/framebuffer lama.
-  // Secara harfiah: `cbAtt` menargetkan 1 attachment layar.
-  // `colorWriteMask` (Macro R_BIT | G_BIT | B_BIT | A_BIT) mengizinkan GPU menulis 
-  // seluruh channel warna (Red, Green, Blue, Alpha) ke layar.
+  // Filosofi Vulkan: Setelah Fragment Shader menghitung warna piksel, Vulkan
+  // perlu tau bagaimana cara menimpa atau mencampur (Blend) piksel baru
+  // tersebut ke layar/framebuffer lama. Secara harfiah: `cbAtt` menargetkan 1
+  // attachment layar. `colorWriteMask` (Macro R_BIT | G_BIT | B_BIT | A_BIT)
+  // mengizinkan GPU menulis seluruh channel warna (Red, Green, Blue, Alpha) ke
+  // layar.
   // ===========================================================================
   VkPipelineColorBlendAttachmentState cbAtt{};
   cbAtt.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
@@ -925,9 +942,12 @@ void VulkanRenderer::destroySwapchain() {
   m_swapViews.clear();
   m_swapImages.clear();
 
-  if (m_depthImageView) vkDestroyImageView(m_dev, m_depthImageView, nullptr);
-  if (m_depthImage) vkDestroyImage(m_dev, m_depthImage, nullptr);
-  if (m_depthImageMem) vkFreeMemory(m_dev, m_depthImageMem, nullptr);
+  if (m_depthImageView)
+    vkDestroyImageView(m_dev, m_depthImageView, nullptr);
+  if (m_depthImage)
+    vkDestroyImage(m_dev, m_depthImage, nullptr);
+  if (m_depthImageMem)
+    vkFreeMemory(m_dev, m_depthImageMem, nullptr);
   m_depthImageView = VK_NULL_HANDLE;
   m_depthImage = VK_NULL_HANDLE;
   m_depthImageMem = VK_NULL_HANDLE;
@@ -943,7 +963,8 @@ void VulkanRenderer::destroySwapchain() {
 // ===========================================================================
 bool VulkanRenderer::recreateSwapchain() {
   destroySwapchain();
-  return createSwapchain() && createDepthResources() && createFramebuffers() && createCommandBuffers();
+  return createSwapchain() && createDepthResources() && createFramebuffers() &&
+         createCommandBuffers();
 }
 
 // ===========================================================================
@@ -973,8 +994,8 @@ bool VulkanRenderer::draw() {
   m_angle = time * m_rotationSpeed;
 
   // --- Siapkan ImGui Frame Baru ---
-  // Memanggil NewFrame di awal sangat penting agar state input (seperti io.MouseWheel)
-  // diperbarui untuk frame ini sebelum kita membacanya.
+  // Memanggil NewFrame di awal sangat penting agar state input (seperti
+  // io.MouseWheel) diperbarui untuk frame ini sebelum kita membacanya.
   ImGui_ImplVulkan_NewFrame();
   ImGui_ImplWin32_NewFrame();
   ImGui::NewFrame();
@@ -982,42 +1003,54 @@ bool VulkanRenderer::draw() {
   // --- Input Mouse (Middle Click Drag untuk Rotasi) ---
   ImGuiIO &io = ImGui::GetIO();
   if (io.MouseDown[2]) { // 2 = Middle Mouse Button
-    m_rotY -= io.MouseDelta.x * 0.01f; // Drag horizontal -> putar di sumbu Y (Yaw)
+    m_rotY -=
+        io.MouseDelta.x * 0.01f; // Drag horizontal -> putar di sumbu Y (Yaw)
     m_rotX += io.MouseDelta.y * 0.01f; // Drag vertikal (Inverted/Terbalik)
   }
 
-  // Batasi (clamp) rotasi vertikal (Pitch) agar tidak flip terbalik (Maksimal +/- ~85 derajat)
-  // Ini penting agar perputaran arah Yaw tidak terasa terbalik (inverted) saat melewati kutub
-  const float PITCH_LIMIT = 1.5f; 
-  if (m_rotX > PITCH_LIMIT) m_rotX = PITCH_LIMIT;
-  if (m_rotX < -PITCH_LIMIT) m_rotX = -PITCH_LIMIT;
+  // Batasi (clamp) rotasi vertikal (Pitch) agar tidak flip terbalik (Maksimal
+  // +/- ~85 derajat) Ini penting agar perputaran arah Yaw tidak terasa terbalik
+  // (inverted) saat melewati kutub
+  const float PITCH_LIMIT = 1.5f;
+  if (m_rotX > PITCH_LIMIT)
+    m_rotX = PITCH_LIMIT;
+  if (m_rotX < -PITCH_LIMIT)
+    m_rotX = -PITCH_LIMIT;
 
   // --- Input Mouse (Scroll Wheel untuk Zoom) ---
-  // Menggunakan roda mouse (Scroll Wheel) untuk mendekatkan/menjauhkan kamera (translasi sumbu Z).
+  // Menggunakan roda mouse (Scroll Wheel) untuk mendekatkan/menjauhkan kamera
+  // (translasi sumbu Z).
   // - Jika Scroll ke depan (io.MouseWheel > 0) -> Jarak berkurang -> Zoom In
-  // - Jika Scroll ke belakang (io.MouseWheel < 0) -> Jarak bertambah -> Zoom Out
+  // - Jika Scroll ke belakang (io.MouseWheel < 0) -> Jarak bertambah -> Zoom
+  // Out
   if (io.MouseWheel != 0.0f) {
-    m_cameraDistance -= io.MouseWheel * 0.5f; // Pengali 0.5 adalah kecepatan/sensitivitas zoom
-    
-    // Batasi (clamp) jarak kamera agar tidak tembus ke dalam jeroan objek, maupun terbang terlalu jauh
-    if (m_cameraDistance < 1.5f) m_cameraDistance = 1.5f;   // Batas maksimal Zoom In
-    if (m_cameraDistance > 20.0f) m_cameraDistance = 20.0f; // Batas maksimal Zoom Out
+    m_cameraDistance -=
+        io.MouseWheel * 0.5f; // Pengali 0.5 adalah kecepatan/sensitivitas zoom
+
+    // Batasi (clamp) jarak kamera agar tidak tembus ke dalam jeroan objek,
+    // maupun terbang terlalu jauh
+    if (m_cameraDistance < 1.5f)
+      m_cameraDistance = 1.5f; // Batas maksimal Zoom In
+    if (m_cameraDistance > 20.0f)
+      m_cameraDistance = 20.0f; // Batas maksimal Zoom Out
   }
 
   // --- hitung matriks MVP ---
   float aspect = (float)m_swapExtent.width / (float)m_swapExtent.height;
-  
-  // Proyeksi Kamera (Field of View ~60 derajat, Near Clip 0.1, Far Clip ditingkatkan ke 50.0 agar objek tidak terpotong saat di-zoom out jauh)
-  Mat4 proj = Mat4::perspective(1.0472f, aspect, 0.1f, 50.0f); 
-  
+
+  // Proyeksi Kamera (Field of View ~60 derajat, Near Clip 0.1, Far Clip
+  // ditingkatkan ke 50.0 agar objek tidak terpotong saat di-zoom out jauh)
+  Mat4 proj = Mat4::perspective(1.0472f, aspect, 0.1f, 50.0f);
+
   // Kombinasi matriks model:
-  // 1. Mat4::translation -> Memposisikan objek sejauh m_cameraDistance dari layar
+  // 1. Mat4::translation -> Memposisikan objek sejauh m_cameraDistance dari
+  // layar
   // 2. Mat4::rotationX   -> Rotasi Pitch (dari drag vertical)
-  // 3. Mat4::rotationY   -> Rotasi Yaw (gabungan drag horizontal + rotasi otomatis)
-  Mat4 model = Mat4::translation(0.0f, 0.0f, m_cameraDistance) * 
-               Mat4::rotationX(m_rotX) * 
-               Mat4::rotationY(m_rotY + m_angle);
-               
+  // 3. Mat4::rotationY   -> Rotasi Yaw (gabungan drag horizontal + rotasi
+  // otomatis)
+  Mat4 model = Mat4::translation(0.0f, 0.0f, m_cameraDistance) *
+               Mat4::rotationX(m_rotX) * Mat4::rotationY(m_rotY + m_angle);
+
   Mat4 mvp = proj * model;       // P * M (standard column-vector)
   Mat4 upload = mvp.transpose(); // transpose untuk row_major HLSL
 
@@ -1102,6 +1135,13 @@ bool VulkanRenderer::draw() {
   if (m_window->window_buffer.showOption) {
     ImGui::Begin("Options", &m_window->window_buffer.showOption);
 
+    if (ImGui::Checkbox("Mute BGM", &m_bgmMuted)) {
+      if (m_bgmMuteCallback) {
+        m_bgmMuteCallback(m_bgmMuted);
+      }
+    }
+    ImGui::Spacing();
+
     // --- Rotation Speed Bar ---
     ImGui::Text("Rotation Speed");
     ImGui::SliderFloat("##speed", &m_rotationSpeed, 0.0f, 10.0f, "%.2f");
@@ -1117,12 +1157,17 @@ bool VulkanRenderer::draw() {
     ImGui::Spacing();
 
     // --- Info ---
-    const char* shapeLabel = "Polygon";
-    if (m_polygonSides == 3) shapeLabel = "Segitiga";
-    else if (m_polygonSides == 4) shapeLabel = "Segi Empat";
-    else if (m_polygonSides == 5) shapeLabel = "Pentagon";
-    else if (m_polygonSides == 6) shapeLabel = "Hexagon";
-    else if (m_polygonSides >= 32) shapeLabel = "Lingkaran";
+    const char *shapeLabel = "Polygon";
+    if (m_polygonSides == 3)
+      shapeLabel = "Segitiga";
+    else if (m_polygonSides == 4)
+      shapeLabel = "Segi Empat";
+    else if (m_polygonSides == 5)
+      shapeLabel = "Pentagon";
+    else if (m_polygonSides == 6)
+      shapeLabel = "Hexagon";
+    else if (m_polygonSides >= 32)
+      shapeLabel = "Lingkaran";
     ImGui::Text("Shape: %s (%d sisi)", shapeLabel, m_polygonSides);
     ImGui::Text("Vertices: %u", m_vertexCount);
     ImGui::Text("Edges: %d", m_polygonSides);
@@ -1140,14 +1185,23 @@ bool VulkanRenderer::draw() {
 
   if (ImGui::Button("Prabowo", ImVec2(buttonWidth, 0))) {
     changeTexture("wowo_pencinta_sawit.png");
+    if (m_characterAudioCallback) {
+      m_characterAudioCallback("hidup_jokowi.mp3");
+    }
   }
   ImGui::SameLine();
   if (ImGui::Button("Gibran", ImVec2(buttonWidth, 0))) {
     changeTexture("gibran.png");
+    if (m_characterAudioCallback) {
+      m_characterAudioCallback("19-juta-lapangan-pekerjaan.mp3");
+    }
   }
   ImGui::SameLine();
   if (ImGui::Button("Jokowi", ImVec2(buttonWidth, 0))) {
     changeTexture("jokowi.png");
+    if (m_characterAudioCallback) {
+      m_characterAudioCallback("mulyono_raja_tipu_tipu.mp3");
+    }
   }
   ImGui::End();
 
@@ -1344,8 +1398,7 @@ bool VulkanRenderer::initImGui() {
   // Load custom font at 64px for the score specifically
   {
     auto fontPath = getExeRelativePath("pixantiqua.ttf");
-    m_scoreFont =
-        io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 64.0f);
+    m_scoreFont = io.Fonts->AddFontFromFileTTF(fontPath.c_str(), 64.0f);
   }
 
   ImGui::StyleColorsDark();
@@ -1405,6 +1458,15 @@ void VulkanRenderer::handleMouseClick(int x, int y) {
     m_score++;
     updateScoreTexture();
   }
+}
+
+void VulkanRenderer::setCharacterAudioCallback(
+    std::function<void(const std::string &)> callback) {
+  m_characterAudioCallback = std::move(callback);
+}
+
+void VulkanRenderer::setBgmMuteCallback(std::function<void(bool)> callback) {
+  m_bgmMuteCallback = std::move(callback);
 }
 
 void VulkanRenderer::updateScoreTexture() {
@@ -1539,11 +1601,14 @@ void VulkanRenderer::changeTexture(const std::string &texturePath) {
 // Depth Resources
 // ===========================================================================
 VkFormat VulkanRenderer::findDepthFormat() {
-  VkFormat candidates[] = {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT};
+  VkFormat candidates[] = {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT,
+                           VK_FORMAT_D24_UNORM_S8_UINT};
   for (VkFormat format : candidates) {
     VkFormatProperties props;
     vkGetPhysicalDeviceFormatProperties(m_physDev, format, &props);
-    if ((props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) == VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+    if ((props.optimalTilingFeatures &
+         VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) ==
+        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
       return format;
     }
   }
@@ -1580,9 +1645,11 @@ bool VulkanRenderer::createDepthResources() {
   VkMemoryAllocateInfo allocInfo{};
   allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
   allocInfo.allocationSize = memRequirements.size;
-  allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  allocInfo.memoryTypeIndex = findMemoryType(
+      memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-  if (vkAllocateMemory(m_dev, &allocInfo, nullptr, &m_depthImageMem) != VK_SUCCESS) {
+  if (vkAllocateMemory(m_dev, &allocInfo, nullptr, &m_depthImageMem) !=
+      VK_SUCCESS) {
     std::printf("ERROR: vkAllocateMemory for depth failed\n");
     return false;
   }
@@ -1600,7 +1667,8 @@ bool VulkanRenderer::createDepthResources() {
   viewInfo.subresourceRange.baseArrayLayer = 0;
   viewInfo.subresourceRange.layerCount = 1;
 
-  if (vkCreateImageView(m_dev, &viewInfo, nullptr, &m_depthImageView) != VK_SUCCESS) {
+  if (vkCreateImageView(m_dev, &viewInfo, nullptr, &m_depthImageView) !=
+      VK_SUCCESS) {
     std::printf("ERROR: vkCreateImageView for depth failed\n");
     return false;
   }

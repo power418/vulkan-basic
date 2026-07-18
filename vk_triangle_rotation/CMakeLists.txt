@@ -160,6 +160,12 @@ if(TARGET main)
             "${CMAKE_SOURCE_DIR}/src/res/voice/hidup_jokowi.mp3"
             "$<TARGET_FILE_DIR:main>/hidup_jokowi.mp3"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/src/res/bgm/mulyono_raja_tipu_tipu.mp3"
+            "$<TARGET_FILE_DIR:main>/mulyono_raja_tipu_tipu.mp3"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/src/res/voice/19-juta-lapangan-pekerjaan.mp3"
+            "$<TARGET_FILE_DIR:main>/19-juta-lapangan-pekerjaan.mp3"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_SOURCE_DIR}/src/res/wowo_pencinta_sawit.png"
             "$<TARGET_FILE_DIR:main>/wowo_pencinta_sawit.png"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

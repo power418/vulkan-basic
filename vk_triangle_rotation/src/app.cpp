@@ -4,6 +4,8 @@
 #include "renderer/vulkan_renderer.hpp"
 
 #include <cstdio>
+#include <cstring>
+#include <utility>
 #include <vector>
 
 #define DR_MP3_IMPLEMENTATION
@@ -43,6 +45,10 @@ static bool pointInTriangle(float px, float py, float x1, float y1, float x2, fl
 
 // ---------------------------------------------------------------------------
 App::App(const Args& args) : m_args(args) {
+    m_bgmEnabledNode = {false, &m_bgmMutedNode, &m_bgmMutedNode};
+    m_bgmMutedNode = {true, &m_bgmEnabledNode, &m_bgmEnabledNode};
+    m_bgmMuteState = &m_bgmEnabledNode;
+
     m_window = createPlatformWindow(args.mode);
     if (!m_window) {
         std::printf("FATAL: Failed to create window for mode: %s\n", args.mode.c_str());
@@ -106,25 +112,57 @@ bool App::init() {
         std::printf("WARNING: Failed to load fish.mp3 from: %s\n", bgmPath.c_str());
     }
 
-    // Load SFX
-    auto sfxPath = getExeRelativePath("hidup_jokowi.mp3");
-    float* pSfxFrames = drmp3_open_file_and_read_pcm_frames_f32(sfxPath.c_str(), &mp3Config, &totalFrames, nullptr);
-    if (pSfxFrames) {
-        size_t totalSamples = static_cast<size_t>(totalFrames) * mp3Config.channels;
-        m_sfxFrames.assign(pSfxFrames, pSfxFrames + totalSamples);
-        drmp3_free(pSfxFrames, nullptr);
-        std::printf("SFX Loaded: %zu frames, %d channels\n", static_cast<size_t>(totalFrames), mp3Config.channels);
-    } else {
-        std::printf("WARNING: Failed to load hidup_jokowi.mp3 from: %s\n", sfxPath.c_str());
+    // Load SFX for character buttons
+    const char* sfxFiles[] = {
+        "hidup_jokowi.mp3",
+        "mulyono_raja_tipu_tipu.mp3",
+        "19-juta-lapangan-pekerjaan.mp3",
+    };
+    for (const char* sfxFile : sfxFiles) {
+        auto sfxPath = getExeRelativePath(sfxFile);
+        float* pSfxFrames = drmp3_open_file_and_read_pcm_frames_f32(sfxPath.c_str(), &mp3Config, &totalFrames, nullptr);
+        if (pSfxFrames) {
+            SoundBuffer sound;
+            sound.filename = sfxFile;
+            sound.sampleRate = mp3Config.sampleRate;
+            sound.channels = mp3Config.channels;
+            size_t totalSamples = static_cast<size_t>(totalFrames) * sound.channels;
+            sound.frames.assign(pSfxFrames, pSfxFrames + totalSamples);
+            m_sfxSounds.push_back(std::move(sound));
+            drmp3_free(pSfxFrames, nullptr);
+            std::printf("SFX Loaded: %s (%zu frames, %d Hz, %d channels)\n", sfxFile, static_cast<size_t>(totalFrames), mp3Config.sampleRate, mp3Config.channels);
+            if (mp3Config.sampleRate != m_bgmSampleRate) {
+                std::printf("WARNING: %s sample rate differs from audio output (%d vs %d)\n", sfxFile, mp3Config.sampleRate, m_bgmSampleRate);
+            }
+        } else {
+            std::printf("WARNING: Failed to load %s from: %s\n", sfxFile, sfxPath.c_str());
+        }
     }
+
+    m_renderer->setCharacterAudioCallback([this](const std::string& sfxFile) {
+        std::lock_guard<std::mutex> lock(m_sfxMutex);
+        for (size_t i = 0; i < m_sfxSounds.size(); ++i) {
+            if (m_sfxSounds[i].filename == sfxFile && !m_sfxSounds[i].frames.empty()) {
+                m_focusedSoundIndex = i;
+                return;
+            }
+        }
+    });
+    m_renderer->setBgmMuteCallback([this](bool muted) {
+        std::lock_guard<std::mutex> lock(m_sfxMutex);
+        if (!m_bgmMuteState) {
+            m_bgmMuteState = &m_bgmEnabledNode;
+        }
+        if (m_bgmMuteState->muted != muted) {
+            m_bgmMuteState = muted ? m_bgmMuteState->next : m_bgmMuteState->prev;
+        }
+    });
 
     if (m_audio && m_audio->init(m_bgmSampleRate)) {
         // Callback untuk Output (Speaker) - Looping BGM MP3 + SFX Polyphony Mixer
         m_audio->setOutputCallback([this](float* outData, size_t frames) {
             static size_t currentFrame = 0;
             size_t framesTotal = m_bgmFrames.size() / m_bgmChannels;
-            size_t sfxTotalFrames = m_sfxFrames.size() / m_bgmChannels;
-
             std::lock_guard<std::mutex> lock(m_sfxMutex);
 
             for (size_t i = 0; i < frames; ++i) {
@@ -136,29 +174,35 @@ bool App::init() {
                     if (currentFrame >= framesTotal) {
                         currentFrame = 0; // Loop kembali ke awal
                     }
-                    if (m_bgmChannels == 1) {
-                        mixedL += m_bgmFrames[currentFrame];
-                        mixedR += m_bgmFrames[currentFrame];
-                    } else if (m_bgmChannels == 2) {
-                        mixedL += m_bgmFrames[currentFrame * 2 + 0];
-                        mixedR += m_bgmFrames[currentFrame * 2 + 1];
+                    if (!m_bgmMuteState || !m_bgmMuteState->muted) {
+                        if (m_bgmChannels == 1) {
+                            mixedL += m_bgmFrames[currentFrame];
+                            mixedR += m_bgmFrames[currentFrame];
+                        } else if (m_bgmChannels == 2) {
+                            mixedL += m_bgmFrames[currentFrame * 2 + 0];
+                            mixedR += m_bgmFrames[currentFrame * 2 + 1];
+                        }
                     }
                     currentFrame++;
                 }
 
                 // 2. Ambil sampel SFX (Polyphony / Bertumpuk)
-                if (!m_sfxFrames.empty()) {
-                    for (size_t& sfxHead : m_sfxPlayheads) {
-                        if (sfxHead < sfxTotalFrames) {
-                            if (m_bgmChannels == 1) {
-                                mixedL += m_sfxFrames[sfxHead];
-                                mixedR += m_sfxFrames[sfxHead];
-                            } else if (m_bgmChannels == 2) {
-                                mixedL += m_sfxFrames[sfxHead * 2 + 0];
-                                mixedR += m_sfxFrames[sfxHead * 2 + 1];
-                            }
-                            sfxHead++;
+                for (ActiveSound& activeSound : m_activeSounds) {
+                    if (activeSound.soundIndex >= m_sfxSounds.size()) {
+                        continue;
+                    }
+
+                    const SoundBuffer& sound = m_sfxSounds[activeSound.soundIndex];
+                    size_t sfxTotalFrames = sound.frames.size() / sound.channels;
+                    if (activeSound.playhead < sfxTotalFrames) {
+                        if (sound.channels == 1) {
+                            mixedL += sound.frames[activeSound.playhead];
+                            mixedR += sound.frames[activeSound.playhead];
+                        } else if (sound.channels >= 2) {
+                            mixedL += sound.frames[activeSound.playhead * sound.channels + 0];
+                            mixedR += sound.frames[activeSound.playhead * sound.channels + 1];
                         }
+                        activeSound.playhead++;
                     }
                 }
 
@@ -173,10 +217,12 @@ bool App::init() {
             }
             
             // Hapus playhead yang sudah selesai (mencapai akhir lagu)
-            auto it = m_sfxPlayheads.begin();
-            while (it != m_sfxPlayheads.end()) {
-                if (*it >= sfxTotalFrames) {
-                    it = m_sfxPlayheads.erase(it);
+            auto it = m_activeSounds.begin();
+            while (it != m_activeSounds.end()) {
+                const SoundBuffer& sound = m_sfxSounds[it->soundIndex];
+                size_t sfxTotalFrames = sound.frames.size() / sound.channels;
+                if (it->playhead >= sfxTotalFrames) {
+                    it = m_activeSounds.erase(it);
                 } else {
                     ++it;
                 }
@@ -253,7 +299,9 @@ bool App::init() {
         if (isHovering) {
             // Trigger suara SFX Bertumpuk (Polyphony)
             std::lock_guard<std::mutex> lock(m_sfxMutex);
-            m_sfxPlayheads.push_back(0); // Spawn new voice
+            if (m_focusedSoundIndex < m_sfxSounds.size() && !m_sfxSounds[m_focusedSoundIndex].frames.empty()) {
+                m_activeSounds.push_back({m_focusedSoundIndex, 0}); // Spawn focused voice
+            }
         }
         if (m_renderer) {
             m_renderer->handleMouseClick(x, y);
