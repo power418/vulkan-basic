@@ -5,6 +5,7 @@
 #include "../platform/window.hpp"
 #include "../shader_compiler.hpp"
 #include "vulkan_texture.hpp"
+#include "logger.hpp"
 
 #include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>
@@ -16,6 +17,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cctype>
 #include <algorithm>
 #include <chrono>
 #include <set>
@@ -44,6 +46,7 @@ bool VulkanRenderer::init(Window *window, const Args &args) {
   m_vertPath = args.vertShader;
   m_fragPath = args.fragShader;
   m_rotationSpeed = args.rotationSpeed;
+  m_preferredGpu = args.gpu;
 
   auto exts = window->getRequiredInstanceExtensions();
 
@@ -94,10 +97,10 @@ bool VulkanRenderer::createInstance(const std::vector<const char *> &exts) {
 
   VkResult res = vkCreateInstance(&ci, nullptr, &m_instance);
   if (res != VK_SUCCESS) {
-    std::printf("ERROR: vkCreateInstance failed (%d)\n", res);
+    LOG_ERROR("vkCreateInstance failed (%d)", res);
     return false;
   }
-  std::printf("Vulkan instance created\n");
+  LOG_INFO("Vulkan instance created successfully");
   return true;
 }
 
@@ -108,7 +111,7 @@ bool VulkanRenderer::pickPhysicalDevice() {
   uint32_t count = 0;
   vkEnumeratePhysicalDevices(m_instance, &count, nullptr);
   if (!count) {
-    std::printf("ERROR: no Vulkan GPU\n");
+    LOG_ERROR("No Vulkan GPU found");
     return false;
   }
 
@@ -116,47 +119,186 @@ bool VulkanRenderer::pickPhysicalDevice() {
   vkEnumeratePhysicalDevices(m_instance, &count, devices.data());
   VkSurfaceKHR surface = m_window->getSurface();
 
-  auto it =
-      std::find_if(devices.begin(), devices.end(), [&](VkPhysicalDevice d) {
-        uint32_t qc = 0;
-        vkGetPhysicalDeviceQueueFamilyProperties(d, &qc, nullptr);
-        std::vector<VkQueueFamilyProperties> queues(qc);
-        vkGetPhysicalDeviceQueueFamilyProperties(d, &qc, queues.data());
+  LOG_INFO("[Vulkan] Enumerating %u physical device(s):", count);
 
-        int32_t gf = -1, pf = -1;
-        for (uint32_t i = 0; i < qc; ++i) {
-          if (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
-            gf = static_cast<int32_t>(i);
-          VkBool32 support = VK_FALSE;
-          vkGetPhysicalDeviceSurfaceSupportKHR(d, i, surface, &support);
-          if (support)
-            pf = static_cast<int32_t>(i);
-        }
+  struct Candidate {
+    VkPhysicalDevice device = VK_NULL_HANDLE;
+    VkPhysicalDeviceProperties props{};
+    uint32_t gfxFamily = 0;
+    uint32_t presFamily = 0;
+    int score = 0;
+  };
 
-        uint32_t fc = 0, mc = 0;
-        vkGetPhysicalDeviceSurfaceFormatsKHR(d, surface, &fc, nullptr);
-        vkGetPhysicalDeviceSurfacePresentModesKHR(d, surface, &mc, nullptr);
+  std::vector<Candidate> candidates;
 
-        if (gf >= 0 && pf >= 0 && fc > 0 && mc > 0) {
-          m_gfxFamily = static_cast<uint32_t>(gf);
-          m_presFamily = static_cast<uint32_t>(pf);
-          return true;
-        }
-        return false;
-      });
+  std::string prefGpuLower = m_preferredGpu;
+  std::transform(prefGpuLower.begin(), prefGpuLower.end(), prefGpuLower.begin(),
+                 [](unsigned char c) { return (char)std::tolower(c); });
 
-  if (it != devices.end()) {
-    m_physDev = *it;
+  for (uint32_t dIdx = 0; dIdx < count; ++dIdx) {
+    VkPhysicalDevice d = devices[dIdx];
+    VkPhysicalDeviceProperties props{};
+    vkGetPhysicalDeviceProperties(d, &props);
+
+    const char *typeStr = "Unknown";
+    switch (props.deviceType) {
+    case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+      typeStr = "Integrated GPU";
+      break;
+    case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+      typeStr = "Discrete GPU";
+      break;
+    case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
+      typeStr = "Virtual GPU";
+      break;
+    case VK_PHYSICAL_DEVICE_TYPE_CPU:
+      typeStr = "CPU";
+      break;
+    default:
+      typeStr = "Other";
+      break;
+    }
+
+    LOG_INFO("  [%u] %s (Type: %s, Vendor: 0x%04X, DeviceID: 0x%04X)",
+             dIdx, props.deviceName, typeStr, props.vendorID, props.deviceID);
+
+    // Check swapchain extension support
+    uint32_t extCount = 0;
+    vkEnumerateDeviceExtensionProperties(d, nullptr, &extCount, nullptr);
+    std::vector<VkExtensionProperties> exts(extCount);
+    vkEnumerateDeviceExtensionProperties(d, nullptr, &extCount, exts.data());
+    bool hasSwapchain = false;
+    for (const auto &ext : exts) {
+      if (std::strcmp(ext.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) {
+        hasSwapchain = true;
+        break;
+      }
+    }
+    if (!hasSwapchain) {
+      LOG_DEBUG("      -> Rejected: VK_KHR_swapchain not supported");
+      continue;
+    }
+
+    // Check queue families
+    uint32_t qc = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(d, &qc, nullptr);
+    std::vector<VkQueueFamilyProperties> queues(qc);
+    vkGetPhysicalDeviceQueueFamilyProperties(d, &qc, queues.data());
+
+    int32_t gf = -1, pf = -1;
+    // Prefer single queue family supporting both graphics and present
+    for (uint32_t i = 0; i < qc; ++i) {
+      VkBool32 support = VK_FALSE;
+      vkGetPhysicalDeviceSurfaceSupportKHR(d, i, surface, &support);
+      if ((queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && support) {
+        gf = static_cast<int32_t>(i);
+        pf = static_cast<int32_t>(i);
+        break;
+      }
+    }
+    // If not found in a single queue, find separate
+    if (gf < 0 || pf < 0) {
+      for (uint32_t i = 0; i < qc; ++i) {
+        if (gf < 0 && (queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT))
+          gf = static_cast<int32_t>(i);
+        VkBool32 support = VK_FALSE;
+        vkGetPhysicalDeviceSurfaceSupportKHR(d, i, surface, &support);
+        if (pf < 0 && support)
+          pf = static_cast<int32_t>(i);
+      }
+    }
+
+    if (gf < 0 || pf < 0) {
+      LOG_DEBUG("      -> Rejected: missing graphics or present queue");
+      continue;
+    }
+
+    // Check surface formats & present modes
+    uint32_t fc = 0, mc = 0;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(d, surface, &fc, nullptr);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(d, surface, &mc, nullptr);
+    if (fc == 0 || mc == 0) {
+      LOG_DEBUG("      -> Rejected: no surface formats or present modes");
+      continue;
+    }
+
+    // Calculate suitability score
+    std::string nameLower = props.deviceName;
+    std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(),
+                   [](unsigned char c) { return (char)std::tolower(c); });
+
+    int score = 0;
+
+    // Explicit user CLI preference (--gpu)
+    if (!prefGpuLower.empty()) {
+      if (nameLower.find(prefGpuLower) != std::string::npos) {
+        score += 1000000;
+      } else {
+        score -= 500000;
+      }
+    }
+
+    // Prioritize RTX GPUs
+    if (nameLower.find("rtx") != std::string::npos) {
+      score += 100000;
+    }
+
+    // Prioritize NVIDIA GPUs
+    if (props.vendorID == 0x10DE ||
+        nameLower.find("nvidia") != std::string::npos ||
+        nameLower.find("geforce") != std::string::npos) {
+      score += 50000;
+    }
+
+    // Discrete GPU preference over integrated GPU
+    if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+      score += 25000;
+    } else if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
+      score += 10;
+    }
+
+    LOG_INFO("      -> Candidate suitable (gfxQueue: %d, presQueue: %d, score: %d)",
+             gf, pf, score);
+
+    candidates.push_back({d, props, static_cast<uint32_t>(gf),
+                          static_cast<uint32_t>(pf), score});
   }
 
-  if (!m_physDev) {
-    std::printf("ERROR: no suitable GPU\n");
+  if (candidates.empty()) {
+    LOG_ERROR("No suitable GPU found");
     return false;
   }
 
-  VkPhysicalDeviceProperties props;
-  vkGetPhysicalDeviceProperties(m_physDev, &props);
-  std::printf("GPU: %s\n", props.deviceName);
+  // Sort descending by score
+  std::sort(candidates.begin(), candidates.end(),
+            [](const Candidate &a, const Candidate &b) {
+              return a.score > b.score;
+            });
+
+  const Candidate &best = candidates[0];
+  m_physDev = best.device;
+  m_gfxFamily = best.gfxFamily;
+  m_presFamily = best.presFamily;
+  m_gpuName = best.props.deviceName;
+
+  LOG_INFO("==================================================");
+  LOG_INFO("[Vulkan] Selected Rendering GPU: %s", best.props.deviceName);
+  LOG_INFO("[Vulkan] Priority Score: %d", best.score);
+
+  VkPhysicalDeviceMemoryProperties memProps{};
+  vkGetPhysicalDeviceMemoryProperties(best.device, &memProps);
+  uint64_t vramBytes = 0;
+  uint64_t sysRamBytes = 0;
+  for (uint32_t h = 0; h < memProps.memoryHeapCount; ++h) {
+    if (memProps.memoryHeaps[h].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) {
+      vramBytes += memProps.memoryHeaps[h].size;
+    } else {
+      sysRamBytes += memProps.memoryHeaps[h].size;
+    }
+  }
+  LOG_INFO("[HARDWARE-VRAM] Dedicated Video RAM (VRAM): %llu MB", vramBytes / (1024 * 1024));
+  LOG_INFO("[HARDWARE-RAM] Shared Host Memory: %llu MB", sysRamBytes / (1024 * 1024));
+  LOG_INFO("==================================================");
   return true;
 }
 
@@ -185,12 +327,13 @@ bool VulkanRenderer::createDevice() {
   ci.pEnabledFeatures = &features;
 
   if (vkCreateDevice(m_physDev, &ci, nullptr, &m_dev) != VK_SUCCESS) {
-    std::printf("ERROR: vkCreateDevice failed\n");
+    LOG_ERROR("vkCreateDevice failed");
     return false;
   }
 
   vkGetDeviceQueue(m_dev, m_gfxFamily, 0, &m_gfxQueue);
   vkGetDeviceQueue(m_dev, m_presFamily, 0, &m_presQueue);
+  LOG_INFO("Vulkan logical device created (gfxQueue=%u, presQueue=%u)", m_gfxFamily, m_presFamily);
   return true;
 }
 
@@ -244,7 +387,7 @@ bool VulkanRenderer::createSwapchain() {
 
   // If the window is minimized the extent can be zero — bail early
   if (m_swapExtent.width == 0 || m_swapExtent.height == 0) {
-    std::printf("WARN: swapchain extent is 0 (window minimised)\n");
+    LOG_WARN("Swapchain extent is 0 (window minimized)");
     return false;
   }
 
@@ -266,8 +409,19 @@ bool VulkanRenderer::createSwapchain() {
   ci.presentMode = mode;
   ci.clipped = VK_TRUE;
 
+  uint32_t queueFamilyIndices[] = {m_gfxFamily, m_presFamily};
+  if (m_gfxFamily != m_presFamily) {
+    ci.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+    ci.queueFamilyIndexCount = 2;
+    ci.pQueueFamilyIndices = queueFamilyIndices;
+  } else {
+    ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    ci.queueFamilyIndexCount = 0;
+    ci.pQueueFamilyIndices = nullptr;
+  }
+
   if (vkCreateSwapchainKHR(m_dev, &ci, nullptr, &m_swapchain) != VK_SUCCESS) {
-    std::printf("ERROR: vkCreateSwapchainKHR failed\n");
+    LOG_ERROR("vkCreateSwapchainKHR failed");
     return false;
   }
 
@@ -286,8 +440,8 @@ bool VulkanRenderer::createSwapchain() {
     vkCreateImageView(m_dev, &vi, nullptr, &m_swapViews[i]);
   }
 
-  std::printf("Swapchain: %zu images, %dx%d\n", m_swapImages.size(),
-              m_swapExtent.width, m_swapExtent.height);
+  LOG_INFO("Swapchain created: %zu images, %dx%d (format=%d)", m_swapImages.size(),
+           m_swapExtent.width, m_swapExtent.height, m_swapFmt);
   return true;
 }
 
@@ -592,7 +746,7 @@ bool VulkanRenderer::createPipeline() {
     std::printf("ERROR: vkCreateGraphicsPipelines failed\n");
     return false;
   }
-  std::printf("Graphics pipeline created\n");
+  LOG_INFO("Graphics pipeline created successfully");
   return true;
 }
 
@@ -626,16 +780,19 @@ bool VulkanRenderer::createFramebuffers() {
 bool VulkanRenderer::createVertexBuffer() {
   auto verts = GeometryController::generatePolygon(m_polygonSides, 1.5f);
   m_vertexCount = static_cast<uint32_t>(verts.size());
-  VkDeviceSize size = verts.size() * sizeof(Vertex);
+
+  // Pre-allocate buffer for up to 64 sides without needing GPU wait-idle reallocations
+  m_vertBufCapacity = 65536; // 64 KB
+  VkDeviceSize currentSize = verts.size() * sizeof(Vertex);
 
   VkBufferCreateInfo bi{};
   bi.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  bi.size = size;
+  bi.size = m_vertBufCapacity;
   bi.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
   bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
   if (vkCreateBuffer(m_dev, &bi, nullptr, &m_vertBuf) != VK_SUCCESS) {
-    std::printf("ERROR: vertex buffer\n");
+    LOG_ERROR("Failed to create vertex buffer");
     return false;
   }
 
@@ -650,14 +807,14 @@ bool VulkanRenderer::createVertexBuffer() {
                                           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
   if (vkAllocateMemory(m_dev, &ai, nullptr, &m_vertMem) != VK_SUCCESS) {
-    std::printf("ERROR: vertex memory\n");
+    LOG_ERROR("Failed to allocate vertex memory");
     return false;
   }
   vkBindBufferMemory(m_dev, m_vertBuf, m_vertMem, 0);
 
   void *data;
-  vkMapMemory(m_dev, m_vertMem, 0, size, 0, &data);
-  std::memcpy(data, verts.data(), size);
+  vkMapMemory(m_dev, m_vertMem, 0, currentSize, 0, &data);
+  std::memcpy(data, verts.data(), currentSize);
   vkUnmapMemory(m_dev, m_vertMem);
   return true;
 }
@@ -695,8 +852,8 @@ bool VulkanRenderer::createUniformBuffer() {
   }
   vkBindBufferMemory(m_dev, m_ubo, m_uboMem, 0);
 
-  std::printf("Uniform buffer created (%llu bytes)\n",
-              (unsigned long long)size);
+  LOG_INFO("Uniform buffer created (%llu bytes)",
+           (unsigned long long)size);
   return true;
 }
 
@@ -827,8 +984,7 @@ bool VulkanRenderer::createCommandPool() {
 // Command buffers
 // ===========================================================================
 bool VulkanRenderer::createCommandBuffers() {
-
-  m_cmdBufs.resize(m_framebufs.size());
+  m_cmdBufs.resize(MAX_FRAMES_IN_FLIGHT);
   VkCommandBufferAllocateInfo ai{};
   ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
   ai.commandPool = m_cmdPool;
@@ -836,9 +992,11 @@ bool VulkanRenderer::createCommandBuffers() {
   ai.commandBufferCount = static_cast<uint32_t>(m_cmdBufs.size());
 
   if (vkAllocateCommandBuffers(m_dev, &ai, m_cmdBufs.data()) != VK_SUCCESS) {
-    std::printf("ERROR: allocate command buffers\n");
+    LOG_ERROR("Failed to allocate command buffers");
     return false;
   }
+  return true;
+}
 
   // for (size_t i = 0; i < m_cmdBufs.size(); ++i) {
   //   VkCommandBufferBeginInfo bi{};
@@ -892,8 +1050,8 @@ bool VulkanRenderer::createCommandBuffers() {
   //     return false;
   //   }
   // }
-  return true;
-}
+//   return true;
+// }
 
 // ===========================================================================
 // Sync objects
@@ -962,15 +1120,25 @@ void VulkanRenderer::destroySwapchain() {
 // recreateSwapchain
 // ===========================================================================
 bool VulkanRenderer::recreateSwapchain() {
+  LOG_INFO("Recreating swapchain...");
   destroySwapchain();
-  return createSwapchain() && createDepthResources() && createFramebuffers() &&
-         createCommandBuffers();
+  bool ok = createSwapchain() && createDepthResources() && createFramebuffers() &&
+            createCommandBuffers();
+  if (ok) {
+    LOG_INFO("Swapchain successfully recreated (%ux%u, %zu images)",
+             m_swapExtent.width, m_swapExtent.height, m_swapImages.size());
+  } else {
+    LOG_WARN("Swapchain recreation failed");
+  }
+  return ok;
 }
 
 // ===========================================================================
 // draw  –  update MVP, submit, present
 // ===========================================================================
 bool VulkanRenderer::draw() {
+  auto frameStartTime = std::chrono::high_resolution_clock::now();
+
   // --- Handle Window Resize (mencegah gambar gepeng) ---
   int w = 0, h = 0;
   m_window->getFramebufferSize(w, h);
@@ -981,6 +1149,36 @@ bool VulkanRenderer::draw() {
       static_cast<uint32_t>(h) != m_swapExtent.height) {
     if (!recreateSwapchain())
       return false;
+  }
+
+  // --- Realtime Render Logger ---
+  static uint64_t frameCounter = 0;
+  static auto lastLogTime = std::chrono::high_resolution_clock::now();
+  static uint32_t framesSinceLastLog = 0;
+  static float currentFps = 0.0f;
+  static float frameTimeMs = 0.0f;
+
+  frameCounter++;
+  framesSinceLastLog++;
+
+  auto nowTime = std::chrono::high_resolution_clock::now();
+  float elapsedSec = std::chrono::duration<float>(nowTime - lastLogTime).count();
+
+  // Log on the very first frame, and periodically every 1.0 second during rendering
+  if (frameCounter == 1 || elapsedSec >= 1.0f) {
+    if (elapsedSec > 0.0f) {
+      currentFps = static_cast<float>(framesSinceLastLog) / elapsedSec;
+      frameTimeMs = (elapsedSec * 1000.0f) / static_cast<float>(framesSinceLastLog);
+    } else {
+      currentFps = 60.0f;
+      frameTimeMs = 16.67f;
+    }
+    LOG_RENDER("Frame #%-6llu | GPU: %s | FPS: %5.1f (%5.2f ms) | Res: %ux%u | Sides: %d | Vertices: %u | Angle: %.2f rad | Score: %d",
+               frameCounter, m_gpuName.c_str(), currentFps, frameTimeMs,
+               m_swapExtent.width, m_swapExtent.height, m_polygonSides,
+               m_vertexCount, m_angle, m_score);
+    lastLogTime = nowTime;
+    framesSinceLastLog = 0;
   }
 
   // --- update sudut rotasi berdasarkan waktu nyata (time-based animation) ---
@@ -1035,103 +1233,7 @@ bool VulkanRenderer::draw() {
       m_cameraDistance = 20.0f; // Batas maksimal Zoom Out
   }
 
-  // --- hitung matriks MVP ---
-  float aspect = (float)m_swapExtent.width / (float)m_swapExtent.height;
-
-  // Proyeksi Kamera (Field of View ~60 derajat, Near Clip 0.1, Far Clip
-  // ditingkatkan ke 50.0 agar objek tidak terpotong saat di-zoom out jauh)
-  Mat4 proj = Mat4::perspective(1.0472f, aspect, 0.1f, 50.0f);
-
-  // Kombinasi matriks model:
-  // 1. Mat4::translation -> Memposisikan objek sejauh m_cameraDistance dari
-  // layar
-  // 2. Mat4::rotationX   -> Rotasi Pitch (dari drag vertical)
-  // 3. Mat4::rotationY   -> Rotasi Yaw (gabungan drag horizontal + rotasi
-  // otomatis)
-  Mat4 model = Mat4::translation(0.0f, 0.0f, m_cameraDistance) *
-               Mat4::rotationX(m_rotX) * Mat4::rotationY(m_rotY + m_angle);
-
-  Mat4 mvp = proj * model;       // P * M (standard column-vector)
-  Mat4 upload = mvp.transpose(); // transpose untuk row_major HLSL
-
-  // --- upload ke GPU ---
-  void *data;
-  vkMapMemory(m_dev, m_uboMem, 0, sizeof(Mat4), 0, &data);
-  std::memcpy(data, upload.data(), sizeof(Mat4));
-  vkUnmapMemory(m_dev, m_uboMem);
-
-  // --- render seperti biasa ---
-  auto &fence = m_fences[m_currentFrame];
-  auto &semImg = m_semImage[m_currentFrame];
-  auto &semRend = m_semRender[m_currentFrame];
-
-  vkWaitForFences(m_dev, 1, &fence, VK_TRUE, UINT64_MAX);
-  vkResetFences(m_dev, 1, &fence);
-
-  uint32_t idx;
-  VkResult r = vkAcquireNextImageKHR(m_dev, m_swapchain, UINT64_MAX, semImg,
-                                     VK_NULL_HANDLE, &idx);
-  if (r == VK_ERROR_OUT_OF_DATE_KHR) {
-    if (!recreateSwapchain()) {
-      std::printf("WARN: swapchain recreate failed (minimised?)\n");
-      ImGui::EndFrame(); // <--- HARUS ADA jika NewFrame sudah dipanggil
-      return true;
-    }
-    ImGui::EndFrame(); // <--- HARUS ADA jika NewFrame sudah dipanggil
-    return true;
-  }
-  if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) {
-    std::printf("WARN: vkAcquireNextImageKHR = %d\n", r);
-    ImGui::EndFrame(); // <--- HARUS ADA
-    return false;
-  }
-
-  // --- Record Command Buffer Dinamis ---
-  vkResetCommandBuffer(m_cmdBufs[idx], 0);
-
-  VkCommandBufferBeginInfo cbi{};
-  cbi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-  cbi.flags = 0;
-  vkBeginCommandBuffer(m_cmdBufs[idx], &cbi);
-
-  VkClearValue clearValues[2]{};
-  clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
-  clearValues[1].depthStencil = {1.0f, 0};
-
-  VkRenderPassBeginInfo rp{};
-  rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-  rp.renderPass = m_renderPass;
-  rp.framebuffer = m_framebufs[idx];
-  rp.renderArea = {{0, 0}, m_swapExtent};
-  rp.clearValueCount = 2;
-  rp.pClearValues = clearValues;
-  vkCmdBeginRenderPass(m_cmdBufs[idx], &rp, VK_SUBPASS_CONTENTS_INLINE);
-
-  vkCmdBindPipeline(m_cmdBufs[idx], VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    m_pipeline);
-
-  VkViewport viewport{};
-  viewport.width = (float)m_swapExtent.width;
-  viewport.height = (float)m_swapExtent.height;
-  viewport.maxDepth = 1.0f;
-  vkCmdSetViewport(m_cmdBufs[idx], 0, 1, &viewport);
-
-  VkRect2D scissor{};
-  scissor.extent = m_swapExtent;
-  vkCmdSetScissor(m_cmdBufs[idx], 0, 1, &scissor);
-
-  VkBuffer vb[] = {m_vertBuf};
-  VkDeviceSize off[] = {0};
-  vkCmdBindVertexBuffers(m_cmdBufs[idx], 0, 1, vb, off);
-
-  vkCmdBindDescriptorSets(m_cmdBufs[idx], VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          m_pipeLayout, 0, 1, &m_descSet, 0, nullptr);
-
-  vkCmdDraw(m_cmdBufs[idx], m_vertexCount, 1, 0, 0);
-
-  // --- Render ImGui ---
-  // (NewFrame sudah dipanggil di awal fungsi draw())
-
+  // --- UI Windows (Diproses lebih awal sebelum sinkronisasi & command recording) ---
   if (m_window->window_buffer.showOption) {
     ImGui::Begin("Options", &m_window->window_buffer.showOption);
 
@@ -1171,6 +1273,14 @@ bool VulkanRenderer::draw() {
     ImGui::Text("Shape: %s (%d sisi)", shapeLabel, m_polygonSides);
     ImGui::Text("Vertices: %u", m_vertexCount);
     ImGui::Text("Edges: %d", m_polygonSides);
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f), "GPU: %s", m_gpuName.c_str());
+    auto &mon = GpuStallMonitor::getInstance();
+    ImGui::Text("GPU Health: %llu Stalls / %llu Frames", mon.stallCount, mon.totalFrames);
+    if (mon.stallCount > 0) {
+      ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "Worst Hitch: %.1f ms (#%llu)",
+                         mon.worstFrameMs, mon.worstFrameIndex);
+    }
 
     ImGui::End();
   }
@@ -1223,11 +1333,129 @@ bool VulkanRenderer::draw() {
     ImGui::End();
   }
 
+  // Selesaikan draw list ImGui untuk frame ini
   ImGui::Render();
-  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), m_cmdBufs[idx]);
 
-  vkCmdEndRenderPass(m_cmdBufs[idx]);
-  vkEndCommandBuffer(m_cmdBufs[idx]);
+  // --- hitung matriks MVP ---
+  float aspect = (float)m_swapExtent.width / (float)m_swapExtent.height;
+
+  // Proyeksi Kamera (Field of View ~60 derajat, Near Clip 0.1, Far Clip
+  // ditingkatkan ke 50.0 agar objek tidak terpotong saat di-zoom out jauh)
+  Mat4 proj = Mat4::perspective(1.0472f, aspect, 0.1f, 50.0f);
+
+  // Kombinasi matriks model:
+  // 1. Mat4::translation -> Memposisikan objek sejauh m_cameraDistance dari
+  // layar
+  // 2. Mat4::rotationX   -> Rotasi Pitch (dari drag vertical)
+  // 3. Mat4::rotationY   -> Rotasi Yaw (gabungan drag horizontal + rotasi
+  // otomatis)
+  Mat4 model = Mat4::translation(0.0f, 0.0f, m_cameraDistance) *
+               Mat4::rotationX(m_rotX) * Mat4::rotationY(m_rotY + m_angle);
+
+  Mat4 mvp = proj * model;       // P * M (standard column-vector)
+  Mat4 upload = mvp.transpose(); // transpose untuk row_major HLSL
+
+  // --- Sinkronisasi Frame in Flight ---
+  auto &fence = m_fences[m_currentFrame];
+  auto &semImg = m_semImage[m_currentFrame];
+  auto &semRend = m_semRender[m_currentFrame];
+  VkCommandBuffer cmdBuf = m_cmdBufs[m_currentFrame];
+
+  auto t_fence_start = std::chrono::high_resolution_clock::now();
+  VkResult fenceRes = vkWaitForFences(m_dev, 1, &fence, VK_TRUE, UINT64_MAX);
+  if (fenceRes == VK_ERROR_DEVICE_LOST) {
+    LOG_ERROR("[RTX-FATAL] Vulkan logical device lost (TDR / driver context reset) in vkWaitForFences! Code: %d", fenceRes);
+    return false;
+  } else if (fenceRes != VK_SUCCESS) {
+    LOG_WARN("[GPU] vkWaitForFences returned error/timeout code: %d", fenceRes);
+  }
+
+  auto t_acq_start = std::chrono::high_resolution_clock::now();
+  uint32_t idx;
+  VkResult r = vkAcquireNextImageKHR(m_dev, m_swapchain, UINT64_MAX, semImg,
+                                     VK_NULL_HANDLE, &idx);
+  float acquireMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - t_acq_start).count();
+
+  if (r == VK_ERROR_DEVICE_LOST) {
+    LOG_ERROR("[RTX-FATAL] vkAcquireNextImageKHR returned VK_ERROR_DEVICE_LOST! Device context is lost.");
+    return false;
+  } else if (r == VK_SUBOPTIMAL_KHR) {
+    LOG_DEBUG("[GPU] vkAcquireNextImageKHR returned VK_SUBOPTIMAL_KHR");
+  } else if (r == VK_ERROR_OUT_OF_DATE_KHR) {
+    LOG_INFO("[GPU] vkAcquireNextImageKHR returned VK_ERROR_OUT_OF_DATE_KHR -> Recreating swapchain");
+    if (!recreateSwapchain()) {
+      LOG_WARN("Swapchain recreate failed on acquire (minimized?)");
+      return true;
+    }
+    return true;
+  }
+  if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) {
+    LOG_ERROR("[GPU] vkAcquireNextImageKHR = %d", r);
+    return false;
+  }
+
+  // SINKRONISASI RESMI: Hanya reset fence SETELAH gambar swapchain berhasil di-acquire dan kita yakin akan submit!
+  vkResetFences(m_dev, 1, &fence);
+  float fenceMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - t_fence_start).count();
+
+  // --- Upload UBO ke GPU (Aman: GPU sudah selesai mengeksekusi frame in-flight ini) ---
+  auto t_ubo_start = std::chrono::high_resolution_clock::now();
+  void *data;
+  vkMapMemory(m_dev, m_uboMem, 0, sizeof(Mat4), 0, &data);
+  std::memcpy(data, upload.data(), sizeof(Mat4));
+  vkUnmapMemory(m_dev, m_uboMem);
+  float uboMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - t_ubo_start).count();
+
+  // --- Record Command Buffer Dinamis (menggunakan cmdBuf per frame in flight) ---
+  auto t_rec_start = std::chrono::high_resolution_clock::now();
+  vkResetCommandBuffer(cmdBuf, 0);
+
+  VkCommandBufferBeginInfo cbi{};
+  cbi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  cbi.flags = 0;
+  vkBeginCommandBuffer(cmdBuf, &cbi);
+
+  VkClearValue clearValues[2]{};
+  clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+  clearValues[1].depthStencil = {1.0f, 0};
+
+  VkRenderPassBeginInfo rp{};
+  rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+  rp.renderPass = m_renderPass;
+  rp.framebuffer = m_framebufs[idx];
+  rp.renderArea = {{0, 0}, m_swapExtent};
+  rp.clearValueCount = 2;
+  rp.pClearValues = clearValues;
+  vkCmdBeginRenderPass(cmdBuf, &rp, VK_SUBPASS_CONTENTS_INLINE);
+
+  vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    m_pipeline);
+
+  VkViewport viewport{};
+  viewport.width = (float)m_swapExtent.width;
+  viewport.height = (float)m_swapExtent.height;
+  viewport.maxDepth = 1.0f;
+  vkCmdSetViewport(cmdBuf, 0, 1, &viewport);
+
+  VkRect2D scissor{};
+  scissor.extent = m_swapExtent;
+  vkCmdSetScissor(cmdBuf, 0, 1, &scissor);
+
+  VkBuffer vb[] = {m_vertBuf};
+  VkDeviceSize off[] = {0};
+  vkCmdBindVertexBuffers(cmdBuf, 0, 1, vb, off);
+
+  vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          m_pipeLayout, 0, 1, &m_descSet, 0, nullptr);
+
+  vkCmdDraw(cmdBuf, m_vertexCount, 1, 0, 0);
+
+  // Render ImGui draw data ke dalam render pass
+  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuf);
+
+  vkCmdEndRenderPass(cmdBuf);
+  vkEndCommandBuffer(cmdBuf);
+  float recordMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - t_rec_start).count();
 
   VkPipelineStageFlags wait = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
   VkSubmitInfo si{};
@@ -1236,10 +1464,19 @@ bool VulkanRenderer::draw() {
   si.pWaitSemaphores = &semImg;
   si.pWaitDstStageMask = &wait;
   si.commandBufferCount = 1;
-  si.pCommandBuffers = &m_cmdBufs[idx];
+  si.pCommandBuffers = &cmdBuf;
   si.signalSemaphoreCount = 1;
   si.pSignalSemaphores = &semRend;
-  vkQueueSubmit(m_gfxQueue, 1, &si, fence);
+
+  auto t_sub_start = std::chrono::high_resolution_clock::now();
+  VkResult subRes = vkQueueSubmit(m_gfxQueue, 1, &si, fence);
+  float submitMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - t_sub_start).count();
+  if (subRes == VK_ERROR_DEVICE_LOST) {
+    LOG_ERROR("[RTX-FATAL] vkQueueSubmit failed with VK_ERROR_DEVICE_LOST (%d)! Stopping render loop.", subRes);
+    return false;
+  } else if (subRes != VK_SUCCESS) {
+    LOG_ERROR("[GPU] vkQueueSubmit failed with code: %d", subRes);
+  }
 
   VkPresentInfoKHR pi{};
   pi.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -1249,12 +1486,38 @@ bool VulkanRenderer::draw() {
   pi.pSwapchains = &m_swapchain;
   pi.pImageIndices = &idx;
 
+  auto t_pres_start = std::chrono::high_resolution_clock::now();
   r = vkQueuePresentKHR(m_presQueue, &pi);
-  if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) {
+  float presentMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - t_pres_start).count();
+
+  if (r == VK_ERROR_DEVICE_LOST) {
+    LOG_ERROR("[RTX-FATAL] vkQueuePresentKHR returned VK_ERROR_DEVICE_LOST (%d)!", r);
+    return false;
+  } else if (r == VK_SUBOPTIMAL_KHR) {
+    LOG_DEBUG("[GPU] vkQueuePresentKHR returned VK_SUBOPTIMAL_KHR (swapchain present successful)");
+  } else if (r == VK_ERROR_OUT_OF_DATE_KHR) {
+    LOG_INFO("[GPU] vkQueuePresentKHR returned VK_ERROR_OUT_OF_DATE_KHR -> Recreating swapchain");
     if (!recreateSwapchain()) {
-      std::printf("WARN: swapchain recreate failed after present\n");
+      LOG_WARN("Swapchain recreate failed after present");
     }
+  } else if (r != VK_SUCCESS) {
+    LOG_ERROR("[GPU] vkQueuePresentKHR failed with error code: %d", r);
   }
+
+  auto frameEndTime = std::chrono::high_resolution_clock::now();
+  float totalFrameMs = std::chrono::duration<float, std::milli>(frameEndTime - frameStartTime).count();
+
+  FrameStageTimes stageTimes;
+  stageTimes.fenceWaitMs = fenceMs;
+  stageTimes.acquireMs = acquireMs;
+  stageTimes.uboUpdateMs = uboMs;
+  stageTimes.recordCmdMs = recordMs;
+  stageTimes.submitMs = submitMs;
+  stageTimes.presentMs = presentMs;
+  stageTimes.totalFrameMs = totalFrameMs;
+
+  GpuStallMonitor::getInstance().recordFrame(frameCounter, m_gpuName, stageTimes,
+                                             m_swapExtent.width, m_swapExtent.height);
 
   m_currentFrame = (m_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
   return true;
@@ -1264,9 +1527,28 @@ bool VulkanRenderer::draw() {
 // rebuildVertexBuffer – rebuild vertex buffer saat polygon sides berubah
 // ===========================================================================
 bool VulkanRenderer::rebuildVertexBuffer(int sides) {
+  m_polygonSides = sides;
+  auto verts = GeometryController::generatePolygon(m_polygonSides, 1.5f);
+  m_vertexCount = static_cast<uint32_t>(verts.size());
+  VkDeviceSize size = verts.size() * sizeof(Vertex);
+
+  // Fast path: upload directly into pre-allocated buffer without stopping GPU pipeline (no vkDeviceWaitIdle)
+  if (m_vertMem && size <= m_vertBufCapacity) {
+    void *data = nullptr;
+    if (vkMapMemory(m_dev, m_vertMem, 0, size, 0, &data) == VK_SUCCESS) {
+      std::memcpy(data, verts.data(), size);
+      vkUnmapMemory(m_dev, m_vertMem);
+      LOG_RENDER("Dynamic polygon updated (Fast path): %d sides (%u vertices, %llu bytes)",
+                 sides, m_vertexCount, size);
+      return true;
+    }
+  }
+
+  // Slow path fallback: capacity exceeded, must reallocate
+  LOG_WARN("[HARDWARE-STALL] Vertex buffer reallocating for %d sides (size=%llu > cap=%llu)...",
+           sides, size, m_vertBufCapacity);
   vkDeviceWaitIdle(m_dev);
 
-  // Destroy vertex buffer lama
   if (m_vertBuf) {
     vkDestroyBuffer(m_dev, m_vertBuf, nullptr);
     m_vertBuf = VK_NULL_HANDLE;
@@ -1276,8 +1558,13 @@ bool VulkanRenderer::rebuildVertexBuffer(int sides) {
     m_vertMem = VK_NULL_HANDLE;
   }
 
-  m_polygonSides = sides;
-  return createVertexBuffer();
+  bool ok = createVertexBuffer();
+  if (ok) {
+    LOG_RENDER("Vertex buffer reallocated: %u active vertices for %d sides", m_vertexCount, sides);
+  } else {
+    LOG_ERROR("Failed to rebuild vertex buffer for %d sides", sides);
+  }
+  return ok;
 }
 
 // ===========================================================================
@@ -1286,6 +1573,7 @@ bool VulkanRenderer::rebuildVertexBuffer(int sides) {
 void VulkanRenderer::cleanup() {
   if (!m_dev)
     return;
+  LOG_INFO("Cleaning up Vulkan renderer resources...");
   vkDeviceWaitIdle(m_dev);
 
   cleanupImGui();
@@ -1456,6 +1744,7 @@ void VulkanRenderer::handleMouseClick(int x, int y) {
   // hit threshold ~0.2 in NDC
   if (distSq < 0.2f) {
     m_score++;
+    LOG_RENDER("Object hit detected! Score updated to: %d", m_score);
     updateScoreTexture();
   }
 }
@@ -1571,10 +1860,11 @@ void VulkanRenderer::changeTexture(const std::string &texturePath) {
   // Load new texture
   if (!loadTextureFromFile(m_dev, m_physDev, m_cmdPool, m_gfxQueue,
                            fullPath.c_str(), m_texture)) {
-    std::printf("Failed to load new texture: %s\n", fullPath.c_str());
+    LOG_ERROR("Failed to load new texture: %s", fullPath.c_str());
     return;
   }
   m_texturePath = fullPath;
+  LOG_INFO("Switched character texture to: %s", fullPath.c_str());
 
   // Update descriptor set with new texture
   VkDescriptorImageInfo imageInfo{};

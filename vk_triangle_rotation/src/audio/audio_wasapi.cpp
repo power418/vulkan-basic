@@ -1,6 +1,7 @@
 #include "audio_wasapi.hpp"
 
 #ifdef _WIN32
+#include "../utils/logger.hpp"
 #include <cstdio>
 #include <avrt.h>
 
@@ -144,9 +145,9 @@ bool AudioWasapi::initRender(int sampleRate) {
     m_channels = wfx.nChannels;
     m_frameSize = wfx.nBlockAlign;
 
-    // Meminta durasi buffer default (0) agar mendapatkan latensi paling kecil (biasanya ~10ms)
-    // sebelumnya 10000000 (1 detik) yang menyebabkan jeda/delay SFX.
-    REFERENCE_TIME hnsRequestedDuration = 0;
+    // Gunakan durasi buffer 25ms (250,000 unit 100ns) untuk memberikan ruang aman
+    // mencegah buffer underrun / suara glitch 'ttrrrrttt' saat GPU/CPU mengalami spike.
+    REFERENCE_TIME hnsRequestedDuration = 250000;
 
     // Gunakan AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM agar OS otomatis menyesuaikan (Windows 10+)
     DWORD flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK | 0x80000000 /*AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM*/ | 0x08000000 /*AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY*/;
@@ -156,7 +157,7 @@ bool AudioWasapi::initRender(int sampleRate) {
         // Fallback jika flag AUTOCONVERT gagal
         hr = m_renderClient->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, hnsRequestedDuration, 0, &wfx, nullptr);
         if (FAILED(hr)) {
-            std::printf("ERROR: Failed to initialize Render AudioClient (Format mismatch)\n");
+            LOG_ERROR("Failed to initialize Render AudioClient (Format mismatch)");
             return false;
         }
     }
@@ -169,7 +170,9 @@ bool AudioWasapi::initRender(int sampleRate) {
 
     hr = m_renderClient->GetBufferSize(&m_renderBufferFrameCount);
     
-    std::printf("Audio Render (Speaker) initialized: %dHz, %d Channels\n", m_sampleRate, m_channels);
+    LOG_INFO("Audio Render (Speaker) initialized: %dHz, %d Channels (Buffer: %u frames, ~%.1f ms)",
+             m_sampleRate, m_channels, m_renderBufferFrameCount,
+             (m_sampleRate > 0) ? (m_renderBufferFrameCount * 1000.0f / m_sampleRate) : 0.0f);
     return true;
 }
 
@@ -229,19 +232,34 @@ void AudioWasapi::renderThreadLoop() {
     DWORD taskIndex = 0;
     HANDLE hTask = AvSetMmThreadCharacteristicsW(L"Pro Audio", &taskIndex);
     
+    auto lastWakeup = std::chrono::high_resolution_clock::now();
+    uint64_t underrunCount = 0;
+
     while (m_running) {
         DWORD waitResult = WaitForSingleObject(m_renderEvent, 2000);
         if (!m_running) break;
         if (waitResult != WAIT_OBJECT_0) continue;
 
+        auto now = std::chrono::high_resolution_clock::now();
+        float intervalMs = std::chrono::duration<float, std::milli>(now - lastWakeup).count();
+        lastWakeup = now;
+
         UINT32 numFramesPadding = 0;
         if (FAILED(m_renderClient->GetCurrentPadding(&numFramesPadding))) continue;
+
+        // If buffer ran dry (padding 0 and interval was delayed), audio underrun occurred
+        if (numFramesPadding == 0 && intervalMs > 20.0f) {
+            underrunCount++;
+            LOG_WARN("[HARDWARE-AUDIO] GLITCH / BUFFER UNDERRUN DETECTED (#%llu)! Interval: %.2f ms | Audio buffer dry -> Menghasilkan suara buzz 'ttrrrrttt'!",
+                     underrunCount, intervalMs);
+        }
 
         UINT32 numFramesAvailable = m_renderBufferFrameCount - numFramesPadding;
         if (numFramesAvailable == 0) continue;
 
         BYTE* pData = nullptr;
         if (SUCCEEDED(m_renderService->GetBuffer(numFramesAvailable, &pData))) {
+            auto cbStart = std::chrono::high_resolution_clock::now();
             
             // Panggil callback milik engine jika di set
             if (m_outputCb) {
@@ -249,6 +267,11 @@ void AudioWasapi::renderThreadLoop() {
             } else {
                 // Tulis silence (diam)
                 std::memset(pData, 0, numFramesAvailable * m_frameSize);
+            }
+
+            float cbMs = std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - cbStart).count();
+            if (cbMs > 10.0f) {
+                LOG_WARN("[HARDWARE-AUDIO] Audio mixer callback lambat (%.2f ms), memicu risiko buffer underrun!", cbMs);
             }
             
             m_renderService->ReleaseBuffer(numFramesAvailable, 0);

@@ -2,6 +2,7 @@
 #include "args.hpp"
 #include "platform/platform.hpp"
 #include "renderer/vulkan_renderer.hpp"
+#include "logger.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -78,9 +79,10 @@ bool App::init() {
     wdesc.height = m_args.height;
 
     if (!m_window->create(wdesc)) {
-        std::printf("FATAL: window creation failed\n");
+        LOG_ERROR("FATAL: window creation failed");
         return false;
     }
+    LOG_INFO("Window created successfully: %s (%dx%d)", wdesc.title.c_str(), wdesc.width, wdesc.height);
 
     // Initialize ImGui window buffer state
     m_window->window_buffer.showOption = true;
@@ -92,9 +94,10 @@ bool App::init() {
     };
 
     if (!m_renderer->init(m_window.get(), m_args)) {
-        std::printf("FATAL: renderer init failed\n");
+        LOG_ERROR("FATAL: renderer init failed");
         return false;
     }
+    LOG_INFO("Vulkan renderer initialized successfully");
 
     // Load MP3 BGM
     drmp3_config mp3Config;
@@ -107,9 +110,9 @@ bool App::init() {
         size_t totalSamples = static_cast<size_t>(totalFrames) * m_bgmChannels;
         m_bgmFrames.assign(pFrames, pFrames + totalSamples);
         drmp3_free(pFrames, nullptr);
-        std::printf("BGM Loaded: %zu frames, %d Hz, %d channels\n", static_cast<size_t>(totalFrames), m_bgmSampleRate, m_bgmChannels);
+        LOG_INFO("BGM Loaded: %zu frames, %d Hz, %d channels (%s)", static_cast<size_t>(totalFrames), m_bgmSampleRate, m_bgmChannels, bgmPath.c_str());
     } else {
-        std::printf("WARNING: Failed to load fish.mp3 from: %s\n", bgmPath.c_str());
+        LOG_WARN("Failed to load fish.mp3 from: %s", bgmPath.c_str());
     }
 
     // Load SFX for character buttons
@@ -163,7 +166,10 @@ bool App::init() {
         m_audio->setOutputCallback([this](float* outData, size_t frames) {
             static size_t currentFrame = 0;
             size_t framesTotal = m_bgmFrames.size() / m_bgmChannels;
-            std::lock_guard<std::mutex> lock(m_sfxMutex);
+            
+            // Gunakan try_to_lock agar thread realtime audio tidak pernah terblokir oleh UI thread
+            std::unique_lock<std::mutex> lock(m_sfxMutex, std::try_to_lock);
+            bool haveSfxLock = lock.owns_lock();
 
             for (size_t i = 0; i < frames; ++i) {
                 float mixedL = 0.0f;
@@ -186,23 +192,25 @@ bool App::init() {
                     currentFrame++;
                 }
 
-                // 2. Ambil sampel SFX (Polyphony / Bertumpuk)
-                for (ActiveSound& activeSound : m_activeSounds) {
-                    if (activeSound.soundIndex >= m_sfxSounds.size()) {
-                        continue;
-                    }
-
-                    const SoundBuffer& sound = m_sfxSounds[activeSound.soundIndex];
-                    size_t sfxTotalFrames = sound.frames.size() / sound.channels;
-                    if (activeSound.playhead < sfxTotalFrames) {
-                        if (sound.channels == 1) {
-                            mixedL += sound.frames[activeSound.playhead];
-                            mixedR += sound.frames[activeSound.playhead];
-                        } else if (sound.channels >= 2) {
-                            mixedL += sound.frames[activeSound.playhead * sound.channels + 0];
-                            mixedR += sound.frames[activeSound.playhead * sound.channels + 1];
+                // 2. Ambil sampel SFX (jika memiliki lock tanpa blocking)
+                if (haveSfxLock) {
+                    for (ActiveSound& activeSound : m_activeSounds) {
+                        if (activeSound.soundIndex >= m_sfxSounds.size()) {
+                            continue;
                         }
-                        activeSound.playhead++;
+
+                        const SoundBuffer& sound = m_sfxSounds[activeSound.soundIndex];
+                        size_t sfxTotalFrames = sound.frames.size() / sound.channels;
+                        if (activeSound.playhead < sfxTotalFrames) {
+                            if (sound.channels == 1) {
+                                mixedL += sound.frames[activeSound.playhead];
+                                mixedR += sound.frames[activeSound.playhead];
+                            } else if (sound.channels >= 2) {
+                                mixedL += sound.frames[activeSound.playhead * sound.channels + 0];
+                                mixedR += sound.frames[activeSound.playhead * sound.channels + 1];
+                            }
+                            activeSound.playhead++;
+                        }
                     }
                 }
 
@@ -216,15 +224,17 @@ bool App::init() {
                 outData[i * 2 + 1] = mixedR;
             }
             
-            // Hapus playhead yang sudah selesai (mencapai akhir lagu)
-            auto it = m_activeSounds.begin();
-            while (it != m_activeSounds.end()) {
-                const SoundBuffer& sound = m_sfxSounds[it->soundIndex];
-                size_t sfxTotalFrames = sound.frames.size() / sound.channels;
-                if (it->playhead >= sfxTotalFrames) {
-                    it = m_activeSounds.erase(it);
-                } else {
-                    ++it;
+            if (haveSfxLock) {
+                // Hapus playhead yang sudah selesai (mencapai akhir lagu)
+                auto it = m_activeSounds.begin();
+                while (it != m_activeSounds.end()) {
+                    const SoundBuffer& sound = m_sfxSounds[it->soundIndex];
+                    size_t sfxTotalFrames = sound.frames.size() / sound.channels;
+                    if (it->playhead >= sfxTotalFrames) {
+                        it = m_activeSounds.erase(it);
+                    } else {
+                        ++it;
+                    }
                 }
             }
         });

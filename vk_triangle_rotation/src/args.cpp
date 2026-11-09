@@ -20,6 +20,12 @@ Args parseArgs(int argc, char* argv[]) {
             if (i + 1 < argc) a.vertShader = argv[++i];
         } else if (strcmp(argv[i], "--frag") == 0) {
             if (i + 1 < argc) a.fragShader = argv[++i];
+        } else if (strcmp(argv[i], "--gpu") == 0 || strcmp(argv[i], "-g") == 0) {
+            if (i + 1 < argc) a.gpu = argv[++i];
+        } else if (strncmp(argv[i], "--gpu=", 6) == 0) {
+            a.gpu = argv[i] + 6;
+        } else if (strncmp(argv[i], "-g", 2) == 0) {
+            a.gpu = argv[i] + 2;
         } else if (strcmp(argv[i], "--mode") == 0 || strcmp(argv[i], "-m") == 0) {
             if (i + 1 < argc) {
                 a.mode = argv[++i];
@@ -56,6 +62,7 @@ void printHelp(const char* name) {
     std::printf("  -s, --speed  <float>    Rotation speed multiplier (default: 0.9)\n");
     std::printf("  --vert     <path>       Vertex shader SPIR-V path\n");
     std::printf("  --frag     <path>       Fragment shader SPIR-V path\n");
+    std::printf("  -g, --gpu   <name>      Force/prefer specific GPU (e.g. 'rtx', 'nvidia')\n");
     std::printf("  -m, --mode <mode>       Window mode:\n");
     std::printf("                            win-aero-enable   Full Win32 + Win32 menubar (DWM NC)\n");
     std::printf("                            win-aero-disable  Full WinRT + custom NC menubar\n");

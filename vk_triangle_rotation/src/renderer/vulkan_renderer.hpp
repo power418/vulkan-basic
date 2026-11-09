@@ -42,6 +42,8 @@ private:
 
     std::string m_vertPath, m_fragPath;
     std::string m_texturePath;
+    std::string m_preferredGpu;
+    std::string m_gpuName;
     std::function<void(const std::string&)> m_characterAudioCallback;
     std::function<void(bool)> m_bgmMuteCallback;
     bool m_bgmMuted = false;
@@ -63,6 +65,7 @@ private:
     // -- Vertex buffer -------------------------------------------------------
     VkBuffer         m_vertBuf        = VK_NULL_HANDLE;
     VkDeviceMemory   m_vertMem        = VK_NULL_HANDLE;
+    VkDeviceSize     m_vertBufCapacity = 0;
 
     // -- Uniform buffer (MVP) ------------------------------------------------
     VkBuffer         m_ubo            = VK_NULL_HANDLE;
